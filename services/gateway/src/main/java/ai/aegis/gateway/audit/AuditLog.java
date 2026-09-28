@@ -65,4 +65,24 @@ public class AuditLog {
     public String getAction() {
         return action;
     }
+
+    public String getUserEmail() {
+        return userEmail;
+    }
+
+    public String getResourceType() {
+        return resourceType;
+    }
+
+    public String getResourceId() {
+        return resourceId;
+    }
+
+    public String getIpAddress() {
+        return ipAddress;
+    }
+
+    public OffsetDateTime getCreatedAt() {
+        return createdAt;
+    }
 }

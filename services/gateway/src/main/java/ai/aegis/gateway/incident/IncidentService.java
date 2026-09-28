@@ -26,10 +26,16 @@ public class IncidentService {
 
     private final IncidentRepository repository;
     private final AuditService auditService;
+    private final ai.aegis.gateway.notification.NotificationService notifications;
+    private final ai.aegis.gateway.alert.AlertService alerts;
 
-    public IncidentService(IncidentRepository repository, AuditService auditService) {
+    public IncidentService(IncidentRepository repository, AuditService auditService,
+                           ai.aegis.gateway.notification.NotificationService notifications,
+                           ai.aegis.gateway.alert.AlertService alerts) {
         this.repository = repository;
         this.auditService = auditService;
+        this.notifications = notifications;
+        this.alerts = alerts;
     }
 
     @Transactional(readOnly = true)
@@ -59,6 +65,9 @@ public class IncidentService {
         repository.save(incident);
         auditService.record(principal.orgId(), principal.userId(), principal.email(),
                 "incident_created", "incident", incident.getId().toString(), ip);
+        notifications.create(principal.userId(), "incident",
+                "Incident created", incident.getTitle());
+        alerts.dispatchIncident(incident.getTitle(), incident.getSeverity());
         return IncidentView.of(incident);
     }
 
