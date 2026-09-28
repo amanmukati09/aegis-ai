@@ -65,3 +65,28 @@ NL2SQL_FALLBACK = {
 
 def nl2sql_prompt(question: str) -> str:
     return f"Question: {question}\n\nReturn the JSON."
+
+
+# ---- Runbook ----
+RUNBOOK_SYSTEM = (
+    "You are an SRE writing an operational runbook to resolve an incident. Return ONLY "
+    "JSON: {\"title\": string, \"severity\": string, "
+    "\"steps\": [{\"phase\": \"detect|diagnose|mitigate|resolve|verify\", \"action\": string, "
+    "\"command\": string}], \"rollback_steps\": [string], \"validation_checks\": [string], "
+    "\"estimated_time\": string}. Commands must be safe, read-only diagnostics where possible."
+)
+RUNBOOK_FALLBACK = {
+    "title": "Incident Runbook",
+    "severity": "unknown",
+    "steps": [
+        {"phase": "detect", "action": "Confirm the alert and scope", "command": "systemctl status"},
+        {"phase": "diagnose", "action": "Inspect logs and resource usage", "command": "df -h && free -m"},
+    ],
+    "rollback_steps": ["Revert the most recent change"],
+    "validation_checks": ["Service responds to health check"],
+    "estimated_time": "Unknown",
+}
+
+
+def runbook_prompt(incident: dict) -> str:
+    return f"Incident:\n{json.dumps(incident)}\n\nWrite the runbook."

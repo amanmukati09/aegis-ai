@@ -89,6 +89,22 @@ public class MlClient {
         return post("/v1/analyze/log-batch", req, java.util.Map.class);
     }
 
+    @SuppressWarnings("unchecked")
+    public java.util.Map<String, Object> runbook(Object req) {
+        return post("/v1/runbook", req, java.util.Map.class);
+    }
+
+    /** Fetch a generated PDF report as raw bytes. */
+    public byte[] reportPdf(Object req) {
+        try {
+            return webClient.post().uri("/v1/report/pdf").bodyValue(req)
+                    .retrieve().bodyToMono(byte[].class).timeout(TIMEOUT).block();
+        } catch (Exception e) {
+            log.error("PDF generation failed: {}", e.getMessage());
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "PDF generation failed");
+        }
+    }
+
     private <T> T post(String path, Object body, Class<T> type) {
         try {
             return webClient.post()

@@ -126,6 +126,12 @@ export const jobsApi = {
   get: (t: string, id: string) => apiGet<Job>(`/jobs/${id}`, t),
 };
 
+// ---- Ingest from URL ----
+export const ingestApi = {
+  fromUrl: (t: string, url: string) =>
+    apiPost<{ lines: string[]; count: number; source: string }>("/ingest/from-url", { url }, t),
+};
+
 // ---- Live monitor ----
 export type LiveState = {
   timestamp: string;

@@ -71,6 +71,25 @@ export function incidentCodeFix(token: string, id: string) {
   return apiPost<Record<string, unknown>>(`/incidents/${id}/code-fix`, {}, token);
 }
 
+export function incidentRunbook(token: string, id: string) {
+  return apiPost<Record<string, unknown>>(`/incidents/${id}/runbook`, {}, token);
+}
+
+export async function downloadIncidentPdf(token: string, id: string) {
+  const res = await fetch(`/api/gateway/incidents/${id}/report.pdf`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`PDF failed (HTTP ${res.status})`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `incident-${id.slice(0, 8)}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function getDashboardSummary(token: string) {
   return apiGet<DashboardSummary>("/dashboard/summary", token);
 }

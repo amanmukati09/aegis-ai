@@ -2,16 +2,78 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Light theme (default) */
 :root {
+  --bg: 247 247 249;
+  --surface: 255 255 255;
+  --surface-2: 245 245 247;
+  --border: 0 0 0;          /* used with low alpha */
+  --ink: 29 29 31;
+  --ink-soft: 110 110 115;
+  --accent: 88 86 214;      /* indigo */
+  --accent-2: 10 132 255;   /* blue */
   color-scheme: light;
 }
 
-html,
-body {
+/* Dark theme (the star) */
+.dark {
+  --bg: 10 11 16;
+  --surface: 20 22 30;
+  --surface-2: 28 30 40;
+  --border: 255 255 255;    /* used with low alpha */
+  --ink: 237 237 240;
+  --ink-soft: 148 150 160;
+  --accent: 124 122 255;    /* brighter indigo for dark */
+  --accent-2: 56 158 255;
+  color-scheme: dark;
+}
+
+html, body {
   padding: 0;
   margin: 0;
 }
 
 body {
-  @apply bg-surface-muted text-ink font-sans antialiased;
+  @apply bg-bg text-ink font-sans antialiased;
+  background-image: radial-gradient(1000px 500px at 100% -10%, rgb(var(--accent) / 0.08), transparent);
+  background-attachment: fixed;
+  min-height: 100vh;
 }
+
+/* Reusable premium utilities */
+@layer components {
+  .glass {
+    @apply border border-line/10 bg-surface/70 backdrop-blur-xl;
+  }
+  .card {
+    @apply rounded-2xl border border-line/10 bg-surface shadow-card dark:shadow-card-dark;
+  }
+  .btn-accent {
+    @apply inline-flex items-center justify-center rounded-xl bg-accent-gradient px-5 text-sm font-medium text-white
+           transition-all hover:brightness-110 hover:shadow-glow active:scale-[0.98]
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center rounded-xl border border-line/10 bg-surface px-4 text-sm
+           font-medium text-ink transition-colors hover:bg-surface-2;
+  }
+  .input {
+    @apply h-11 w-full rounded-xl border border-line/10 bg-surface px-4 text-sm text-ink outline-none
+           transition-shadow placeholder:text-ink-soft focus:ring-2 focus:ring-accent/40;
+  }
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-surface-2;
+  }
+  .skeleton::after {
+    @apply absolute inset-0;
+    content: "";
+    background: linear-gradient(90deg, transparent, rgb(var(--ink) / 0.06), transparent);
+    animation: shimmer 1.5s infinite;
+    transform: translateX(-100%);
+  }
+}
+
+/* Subtle custom scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgb(var(--ink) / 0.15); border-radius: 8px; }
+::-webkit-scrollbar-track { background: transparent; }

@@ -6,7 +6,8 @@ import { useAuth } from "@/lib/auth-context";
 import { getDashboardSummary, type DashboardSummary } from "@/lib/incidents-api";
 import { analyticsApi, type TimeseriesPoint } from "@/lib/platform-api";
 import { Card, ErrorText, SeverityBadge, StatusBadge } from "@/components/ui";
-import { DonutBreakdown, LineTrend } from "@/components/Charts";
+import { AreaTrend, DonutBreakdown } from "@/components/Charts";
+import { StatCard } from "@/components/StatCard";
 
 export default function DashboardHome() {
   const { user, token } = useAuth();
@@ -49,16 +50,16 @@ export default function DashboardHome() {
       <ErrorText message={error} />
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat label="Open" value={loading ? "…" : summary?.open ?? 0} />
-        <Stat label="Critical" value={loading ? "…" : critical} accent={critical > 0} />
-        <Stat label="Resolved" value={loading ? "…" : summary?.resolved ?? 0} />
-        <Stat label="MTTR (hrs)" value={loading ? "…" : mttr == null ? "—" : mttr.toFixed(1)} />
+        <StatCard label="Open" value={loading ? "—" : summary?.open ?? 0} />
+        <StatCard label="Critical" value={loading ? "—" : critical} accent={critical > 0} />
+        <StatCard label="Resolved" value={loading ? "—" : summary?.resolved ?? 0} />
+        <StatCard label="MTTR (hrs)" value={loading ? "—" : mttr == null ? "—" : mttr.toFixed(1)} />
       </div>
 
       <Card className="mt-6">
         <h2 className="mb-3 text-sm font-medium text-ink">Incidents over the last 14 days</h2>
         {series.length > 0 ? (
-          <LineTrend data={series as unknown as Record<string, unknown>[]} xKey="day" yKey="total" />
+          <AreaTrend data={series as unknown as Record<string, unknown>[]} xKey="day" yKey="total" />
         ) : (
           <p className="py-8 text-center text-sm text-ink-soft">{loading ? "Loading…" : "No data yet."}</p>
         )}
@@ -110,15 +111,6 @@ export default function DashboardHome() {
         )}
       </Card>
     </div>
-  );
-}
-
-function Stat({ label, value, accent = false }: { label: string; value: React.ReactNode; accent?: boolean }) {
-  return (
-    <Card>
-      <p className="text-sm text-ink-soft">{label}</p>
-      <p className={"mt-1 text-2xl font-semibold " + (accent ? "text-red-600" : "text-ink")}>{value}</p>
-    </Card>
   );
 }
 

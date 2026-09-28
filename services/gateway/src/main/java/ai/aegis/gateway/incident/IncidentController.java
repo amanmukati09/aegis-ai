@@ -82,6 +82,30 @@ public class IncidentController {
         return ml.codeFix(service.mlContext(principal, id));
     }
 
+    @PostMapping("/{id}/runbook")
+    public java.util.Map<String, Object> runbook(@AuthenticationPrincipal AuthPrincipal principal,
+                                                 @PathVariable UUID id) {
+        var ctx = service.mlContext(principal, id);
+        return ml.runbook(java.util.Map.of("incident", ctx));
+    }
+
+    @PostMapping("/{id}/report.pdf")
+    public ResponseEntity<byte[]> reportPdf(@AuthenticationPrincipal AuthPrincipal principal,
+                                            @PathVariable UUID id) {
+        var view = service.get(principal, id);
+        byte[] pdf = ml.reportPdf(java.util.Map.of(
+                "title", "Incident Report: " + (view.title() == null ? id.toString() : view.title()),
+                "analysis", java.util.Map.of(
+                        "summary", java.util.Map.of(
+                                "description", view.anomalyDescription() == null ? "" : view.anomalyDescription(),
+                                "severity", view.severity() == null ? "unknown" : view.severity()),
+                        "total_lines", 0)));
+        return ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=incident-report.pdf")
+                .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                .body(pdf);
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ORG_ADMIN')")

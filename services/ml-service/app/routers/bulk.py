@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter
 from fastapi.responses import Response
@@ -57,29 +58,71 @@ class PdfRequest(BaseModel):
 
 @router.post("/report/pdf")
 def report_pdf(req: PdfRequest) -> Response:
-    """Generate a simple PDF report. Uses reportlab if available, else a text fallback."""
+    """Generate a structured PDF incident report (title, summary, stats table, anomalies)."""
     try:
-        from reportlab.lib.pagesizes import letter
-        from reportlab.pdfgen import canvas
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+        )
 
+        a = req.analysis or {}
+        summary = a.get("summary", {}) if isinstance(a.get("summary"), dict) else {}
         buf = io.BytesIO()
-        c = canvas.Canvas(buf, pagesize=letter)
-        y = 760
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(60, y, req.title)
-        c.setFont("Helvetica", 10)
-        y -= 30
-        for line in json.dumps(req.analysis, indent=2).splitlines()[:60]:
-            c.drawString(60, y, line[:100])
-            y -= 14
-            if y < 60:
-                c.showPage()
-                y = 760
-        c.showPage()
-        c.save()
-        pdf = buf.getvalue()
-        return Response(content=pdf, media_type="application/pdf",
-                        headers={"Content-Disposition": "attachment; filename=report.pdf"})
+        doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=20 * mm, bottomMargin=18 * mm)
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle("t", parent=styles["Title"], textColor=colors.HexColor("#5856d6"))
+        h = ParagraphStyle("h", parent=styles["Heading2"], textColor=colors.HexColor("#1d1d1f"))
+        body = styles["BodyText"]
+
+        story = [Paragraph(req.title, title_style), Spacer(1, 6)]
+        story.append(Paragraph(
+            f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}", body))
+        story.append(Spacer(1, 12))
+
+        # Summary
+        story.append(Paragraph("Summary", h))
+        story.append(Paragraph(
+            summary.get("description", "No summary available."), body))
+        story.append(Spacer(1, 12))
+
+        # Stats table
+        stats = [
+            ["Metric", "Value"],
+            ["Total lines", str(a.get("total_lines", "—"))],
+            ["Errors", str(a.get("error_count", "—"))],
+            ["Warnings", str(a.get("warning_count", "—"))],
+            ["Severity", str(summary.get("severity", "—"))],
+            ["Affected component", str(summary.get("affected_component", "—"))],
+        ]
+        table = Table(stats, colWidths=[70 * mm, 90 * mm])
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#5856d6")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTSIZE", (0, 0), (-1, -1), 10),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f5f7")]),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e0e0e0")),
+            ("PADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(table)
+        story.append(Spacer(1, 14))
+
+        # Anomalies
+        anomalies = a.get("anomalies", [])
+        if anomalies:
+            story.append(Paragraph("Detected anomalies", h))
+            for an in anomalies[:20]:
+                if isinstance(an, dict):
+                    story.append(Paragraph(
+                        f"<b>{an.get('anomaly_type', 'anomaly')}</b> "
+                        f"({an.get('severity', 'unknown')}) — {an.get('description', '')}", body))
+                    story.append(Spacer(1, 4))
+
+        doc.build(story)
+        return Response(content=buf.getvalue(), media_type="application/pdf",
+                        headers={"Content-Disposition": "attachment; filename=incident-report.pdf"})
     except ImportError:
         text = (req.title + "\n\n" + json.dumps(req.analysis, indent=2)).encode()
         return Response(content=text, media_type="text/plain",

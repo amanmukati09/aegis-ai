@@ -8,6 +8,8 @@ import {
   downloadIncidentsCsv,
   incidentCodeFix,
   incidentRcaTree,
+  incidentRunbook,
+  downloadIncidentPdf,
   listIncidents,
   resolveIncident,
   type Incident,
@@ -187,6 +189,7 @@ function DetailDrawer({
   const [aiBusy, setAiBusy] = useState<string | null>(null);
   const [rca, setRca] = useState<Record<string, unknown> | null>(null);
   const [codeFix, setCodeFix] = useState<Record<string, unknown> | null>(null);
+  const [runbook, setRunbook] = useState<Record<string, unknown> | null>(null);
 
   async function runRca() {
     if (!token) return;
@@ -201,6 +204,22 @@ function DetailDrawer({
     setAiBusy("fix");
     try { setCodeFix(await incidentCodeFix(token, incident.id)); }
     catch (e) { setError(e instanceof Error ? e.message : "Code fix failed"); }
+    finally { setAiBusy(null); }
+  }
+
+  async function runRunbook() {
+    if (!token) return;
+    setAiBusy("runbook");
+    try { setRunbook(await incidentRunbook(token, incident.id)); }
+    catch (e) { setError(e instanceof Error ? e.message : "Runbook failed"); }
+    finally { setAiBusy(null); }
+  }
+
+  async function downloadPdf() {
+    if (!token) return;
+    setAiBusy("pdf");
+    try { await downloadIncidentPdf(token, incident.id); }
+    catch (e) { setError(e instanceof Error ? e.message : "PDF failed"); }
     finally { setAiBusy(null); }
   }
 
@@ -256,14 +275,37 @@ function DetailDrawer({
         {/* AI actions */}
         <div className="mt-5 flex gap-2">
           <button onClick={runRca} disabled={aiBusy !== null}
-            className="flex-1 rounded-xl border border-black/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-muted disabled:opacity-50">
+            className="flex-1 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
             {aiBusy === "rca" ? "Analyzing…" : "RCA tree"}
           </button>
           <button onClick={runCodeFix} disabled={aiBusy !== null}
-            className="flex-1 rounded-xl border border-black/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-muted disabled:opacity-50">
+            className="flex-1 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
             {aiBusy === "fix" ? "Generating…" : "Suggest code fix"}
           </button>
         </div>
+        <div className="mt-2 flex gap-2">
+          <button onClick={runRunbook} disabled={aiBusy !== null}
+            className="flex-1 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
+            {aiBusy === "runbook" ? "Writing…" : "Generate runbook"}
+          </button>
+          <button onClick={downloadPdf} disabled={aiBusy !== null}
+            className="flex-1 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
+            {aiBusy === "pdf" ? "Preparing…" : "Download PDF"}
+          </button>
+        </div>
+
+        {runbook && (
+          <Card className="mt-3">
+            <p className="text-xs uppercase tracking-wide text-ink-soft">Runbook — {String(runbook.title ?? "")}</p>
+            {Array.isArray(runbook.steps) && (runbook.steps as RunbookStep[]).map((s, i) => (
+              <div key={i} className="mt-2 text-sm">
+                <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs uppercase text-ink-soft">{s.phase}</span>{" "}
+                {s.action}
+                {s.command && <code className="mt-1 block rounded bg-ink/90 px-2 py-1 font-mono text-xs text-white">{s.command}</code>}
+              </div>
+            ))}
+          </Card>
+        )}
 
         {rca && (
           <Card className="mt-3">
@@ -320,6 +362,7 @@ function Detail({ label, value }: { label: string; value?: string | null }) {
 
 type TreeNode = { label: string; children?: TreeNode[] };
 type Fix = { title: string; code: string; risk: string; rollback?: string };
+type RunbookStep = { phase: string; action: string; command?: string };
 
 function RcaTree({ node, depth = 0 }: { node?: TreeNode; depth?: number }) {
   if (!node) return null;

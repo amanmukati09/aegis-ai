@@ -33,9 +33,15 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-6">
-      <div className="w-full max-w-sm">
+    <main className="relative flex min-h-screen items-center justify-center px-6">
+      <div className="pointer-events-none absolute inset-0 bg-surface-glow" />
+      <div className="relative w-full max-w-sm">
         <div className="mb-8 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-gradient text-white shadow-glow">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5l-8-3Z" />
+            </svg>
+          </div>
           <h1 className="text-3xl font-semibold tracking-tight">AegisAI</h1>
           <p className="mt-1 text-sm text-ink-soft">Sign in to your account</p>
         </div>
