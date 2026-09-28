@@ -32,7 +32,7 @@ docker compose version
 ## 1. Get the code and configure
 
 ```bash
-git clone <your-repo-url> aegisai
+git clone https://github.com/amanmukati09/cloud-hackathon-tcs-amd.git aegisai
 cd aegisai
 cp .env.example .env
 ```

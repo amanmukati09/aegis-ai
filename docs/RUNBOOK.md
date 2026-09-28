@@ -1,14 +1,18 @@
-# AegisAI — RUNBOOK (build here, run on the Linux EC2)
+# AegisAI — Operations Runbook
 
-This is the operational loop for the whole project. **Author in Kiro (this Windows box) → transfer to the Linux EC2 → build/run/test there → send results back.** Nothing builds or runs on the Windows RDP box (RAM-constrained), and nothing touches office/TCS AWS, GitHub, or git.
+Operational guide for deploying and running AegisAI on a Linux host (VM, cloud instance, or
+your laptop). The stack is Docker-only: no JDK / Node / Python needed on the host.
 
-Repo lives here at `aegis-v2/aegisai/` and transfers to the EC2 as `~/aegisai/`.
+Replace the placeholders below with your own values:
+
+- `HOST` — your server, e.g. `ec2-user@your-host.example.com`
+- `KEY.pem` — your SSH key (omit `-i KEY.pem` if you use an SSH agent)
 
 ---
 
-## 0. One-time on the EC2: add swap (recommended)
+## 0. One-time: add swap (small hosts)
 
-The box has 3.8 GB RAM and no swap. Give it headroom before the first Docker build:
+On a memory-constrained box (~4 GB), give Docker headroom before the first build:
 
 ```bash
 sudo bash infra/scripts/setup-swap.sh   # creates a 4GB swapfile, persists in /etc/fstab
@@ -16,77 +20,68 @@ sudo bash infra/scripts/setup-swap.sh   # creates a 4GB swapfile, persists in /e
 
 ---
 
-## 1. Transfer the repo to the EC2
+## 1. Get the code onto the host
 
-Run these **from the Windows box**, in `C:\Users\Administrator\Desktop\MY Files` (where the pem key is).
-
-**Option A — quick full copy (PowerShell `scp`):**
-```powershell
-# Create a tarball of the authored repo, copy it up, extract on the EC2.
-tar --exclude='node_modules' --exclude='target' --exclude='.next' -czf aegisai.tgz -C aegis-v2 aegisai
-scp -i "storedprocedurekeypairtest.pem" aegisai.tgz ec2-user@ec2-34-228-62-32.compute-1.amazonaws.com:~/
-ssh -i "storedprocedurekeypairtest.pem" ec2-user@ec2-34-228-62-32.compute-1.amazonaws.com "tar -xzf ~/aegisai.tgz -C ~/ && rm ~/aegisai.tgz && ls ~/aegisai"
-del aegisai.tgz
+**Clone directly on the host:**
+```bash
+git clone https://github.com/amanmukati09/cloud-hackathon-tcs-amd.git aegisai
+cd aegisai
 ```
 
-**Option B — from a Linux/WSL terminal (rsync, incremental):**
+**Or transfer a local checkout (rsync, incremental):**
 ```bash
 rsync -az --delete \
   --exclude node_modules --exclude target --exclude .next \
-  -e "ssh -i storedprocedurekeypairtest.pem" \
-  aegis-v2/aegisai/ ec2-user@ec2-34-228-62-32.compute-1.amazonaws.com:~/aegisai/
+  -e "ssh -i KEY.pem" \
+  aegisai/ HOST:~/aegisai/
 ```
 
 ---
 
-## 2. Configure `.env` on the EC2
+## 2. Configure `.env`
 
 ```bash
 cd ~/aegisai
 cp .env.example .env
-# Edit .env: set JWT_SECRET (any long random string), POSTGRES_PASSWORD, REDIS_PASSWORD,
-# and GROQ_API_KEY (your personal key). Everything else can stay blank for Phase 0.
+# Set JWT_SECRET (long random string), POSTGRES_PASSWORD, REDIS_PASSWORD,
+# and GROQ_API_KEY (your key). See .env.example for the full list.
 nano .env
 ```
 
-> Phase 0 boots fine even without GROQ_API_KEY — the ML `/v1/models` endpoint just returns an empty model list until a key is set.
+> The stack boots even without `GROQ_API_KEY` — the ML `/v1/models` endpoint just returns an
+> empty list until a key is set.
 
 ---
 
 ## 3. Bring up the core stack
 
 ```bash
-cd ~/aegisai
-bash infra/scripts/ec2-up.sh
+cd ~/aegisai/infra/docker
+docker compose --env-file ../../.env up -d --build
+docker compose --env-file ../../.env ps
 ```
 
-This builds and starts: **postgres (pgvector) · redis · ml-service · gateway · frontend**. First build pulls base images and compiles the JVM app — give it a few minutes.
-
-Check status:
-```bash
-docker compose --env-file ../../.env ps   # from infra/docker, or just: cd infra/docker && docker compose --env-file ../../.env ps
-```
+Starts: **postgres (pgvector) · redis · ml-service · gateway · frontend**. The first build
+compiles the JVM app — give it a few minutes.
 
 ---
 
-## 4. Verify (Phase 0 definition of done)
+## 4. Verify
 
 ```bash
-bash infra/scripts/smoke-test.sh
+bash infra/scripts/smoke-test.sh     # core Phase-0 checks
+bash infra/scripts/smoke-full.sh     # full end-to-end feature smoke
 ```
 
-Expected: all five checks PASS —
+Expected core checks:
 - `http://localhost:8080/actuator/health` → `{"status":"UP"}`
-- `http://localhost:8080/api/health` → gateway ok
 - `http://localhost:8001/healthz` → ml ok
-- `http://localhost:8001/v1/models` → JSON (empty models list until GROQ key set)
-- `http://localhost:3000` → frontend HTML (health page shows both backends "healthy")
+- `http://localhost:3000` → frontend HTML
 
-To reach the UI from your browser, use the EC2 public IP (open the ports in the security group only if you intend to — otherwise use an SSH tunnel):
+To reach the UI from your browser without opening ports, use an SSH tunnel:
 ```bash
-# SSH tunnel from the Windows box (no security-group changes needed):
-ssh -i "storedprocedurekeypairtest.pem" -L 3000:localhost:3000 -L 8080:localhost:8080 -L 8001:localhost:8001 ec2-user@ec2-34-228-62-32.compute-1.amazonaws.com
-# then open http://localhost:3000 in your browser
+ssh -i KEY.pem -L 3000:localhost:3000 -L 8080:localhost:8080 -L 8001:localhost:8001 HOST
+# then open http://localhost:3000
 ```
 
 ---
@@ -104,29 +99,25 @@ docker compose --env-file ../../.env down -v       # stop + wipe volumes (fresh 
 
 ---
 
-## 6. Per-service tests (optional, run inside Docker)
+## 6. Per-service tests (inside Docker)
 
 ```bash
 # ML service tests
 docker run --rm -v ~/aegisai/services/ml-service:/app -w /app python:3.11-slim \
   sh -c "pip install -q -r requirements.txt && pytest -q"
 
-# Gateway tests (unit; full context tests come in Phase 1 with Testcontainers)
+# Gateway tests (Testcontainers spins up Postgres)
 docker run --rm -v ~/aegisai/services/gateway:/app -w /app maven:3.9-eclipse-temurin-21 \
   mvn -q -B test
 ```
 
 ---
 
-## 7. The loop
+## 7. Optional Track C overlays
 
-1. I edit files here in Kiro.
-2. You re-run the transfer (step 1) — rsync only sends changed files.
-3. `bash infra/scripts/ec2-up.sh` (rebuilds changed images) and `smoke-test.sh`.
-4. Paste back any errors/logs.
-5. I fix here. Repeat.
+Only on a capable host (not a ~4 GB box). See [LAPTOP_SETUP.md](../LAPTOP_SETUP.md) for the
+full activation guide.
 
-Optional heavy overlays (only on a bigger host, not this 3.8GB box):
 ```bash
 cd infra/docker
 docker compose -f docker-compose.yml -f docker-compose.graph.yml   --env-file ../../.env up -d   # + Neo4j
