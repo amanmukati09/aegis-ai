@@ -84,6 +84,11 @@ public class MlClient {
         return post("/v1/nl-to-sql", req, java.util.Map.class);
     }
 
+    @SuppressWarnings("unchecked")
+    public java.util.Map<String, Object> analyzeLogBatch(Object req) {
+        return post("/v1/analyze/log-batch", req, java.util.Map.class);
+    }
+
     private <T> T post(String path, Object body, Class<T> type) {
         try {
             return webClient.post()

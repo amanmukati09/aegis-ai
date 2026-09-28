@@ -84,6 +84,10 @@ export const adminApi = {
   users: (t: string) => apiGet<AdminUser[]>("/admin/users", t),
   auditLogs: (t: string) => apiGet<AuditEntry[]>("/admin/audit-logs", t),
   metrics: (t: string) => apiGet<Record<string, number>>("/admin/metrics", t),
+  alertStatus: (t: string) => apiGet<{ configuredChannels: string[] }>("/admin/alerts/status", t),
+  alertTest: (t: string) => apiPost<{ status: string; channels: string[] }>("/admin/alerts/test", {}, t),
+  invite: (t: string, input: { email: string; fullName: string; role: string; tempPassword: string }) =>
+    apiPost<AdminUser>("/admin/users/invite", input, t),
 };
 
 // ---- Analytics (NL->SQL + charts) ----
@@ -107,4 +111,28 @@ export type GraphEdge = { source: string; target: string; weight: number };
 export type DependencyGraph = { nodes: GraphNode[]; edges: GraphEdge[]; hasData: boolean };
 export const dependencyApi = {
   graph: (t: string) => apiGet<DependencyGraph>("/dependency/graph", t),
+};
+
+// ---- Async jobs (bulk analysis) ----
+export type Job = {
+  id: string;
+  type: string;
+  status: string;
+  result: Record<string, unknown> | null;
+  error: string | null;
+};
+export const jobsApi = {
+  bulkAnalyze: (t: string, logs: string[]) => apiPost<Job>("/jobs/bulk-analyze", { logs }, t),
+  get: (t: string, id: string) => apiGet<Job>(`/jobs/${id}`, t),
+};
+
+// ---- Live monitor ----
+export type LiveState = {
+  timestamp: string;
+  total: number;
+  open: number;
+  recent: { id: string; title: string; severity: string; status: string; detectedAt: string }[];
+};
+export const liveApi = {
+  state: (t: string) => apiGet<LiveState>("/live/state", t),
 };

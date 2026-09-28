@@ -6,7 +6,7 @@ import logging
 from fastapi import FastAPI
 
 from . import __version__
-from .routers import advanced, chat, diagnosis, health, models
+from .routers import advanced, bulk, chat, diagnosis, health, models
 
 logging.basicConfig(level=logging.INFO)
 
@@ -17,6 +17,7 @@ app.include_router(models.router)
 app.include_router(chat.router)
 app.include_router(diagnosis.router)
 app.include_router(advanced.router)
+app.include_router(bulk.router)
 
 
 if __name__ == "__main__":

@@ -4,25 +4,50 @@ import { useCallback, useEffect, useState } from "react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/lib/auth-context";
 import { adminApi, type AdminUser, type AuditEntry } from "@/lib/platform-api";
-import { Card } from "@/components/ui";
+import { Button, Card, ErrorText, Field, Input } from "@/components/ui";
 
 function AdminInner() {
   const { token } = useAuth();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [metrics, setMetrics] = useState<Record<string, number>>({});
+  const [channels, setChannels] = useState<string[]>([]);
+  const [invite, setInvite] = useState({ email: "", fullName: "", role: "member", tempPassword: "" });
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
-    const [u, a, m] = await Promise.all([
+    const [u, a, m, c] = await Promise.all([
       adminApi.users(token),
       adminApi.auditLogs(token),
       adminApi.metrics(token),
+      adminApi.alertStatus(token).catch(() => ({ configuredChannels: [] })),
     ]);
-    setUsers(u); setAudit(a); setMetrics(m);
+    setUsers(u); setAudit(a); setMetrics(m); setChannels(c.configuredChannels);
   }, [token]);
 
   useEffect(() => { load(); }, [load]);
+
+  async function onInvite(e: React.FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setError(null); setMsg(null);
+    try {
+      await adminApi.invite(token, invite);
+      setMsg(`Invited ${invite.email}`);
+      setInvite({ email: "", fullName: "", role: "member", tempPassword: "" });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invite failed");
+    }
+  }
+
+  async function onTestAlert() {
+    if (!token) return;
+    const res = await adminApi.alertTest(token);
+    setMsg(`Test alert sent to: ${res.channels.join(", ") || "stdout"}`);
+  }
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -32,6 +57,41 @@ function AdminInner() {
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Card><p className="text-sm text-ink-soft">Users</p><p className="mt-1 text-2xl font-semibold">{metrics.users ?? "—"}</p></Card>
         <Card><p className="text-sm text-ink-soft">Incidents</p><p className="mt-1 text-2xl font-semibold">{metrics.incidents ?? "—"}</p></Card>
+      </div>
+
+      {msg && <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{msg}</p>}
+      <ErrorText message={error} />
+
+      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <h2 className="mb-3 text-sm font-medium">Invite member</h2>
+          <form onSubmit={onInvite} className="space-y-3">
+            <Field label="Email"><Input type="email" value={invite.email} onChange={(e) => setInvite({ ...invite, email: e.target.value })} required /></Field>
+            <Field label="Full name"><Input value={invite.fullName} onChange={(e) => setInvite({ ...invite, fullName: e.target.value })} required /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Role">
+                <select value={invite.role} onChange={(e) => setInvite({ ...invite, role: e.target.value })}
+                  className="h-11 w-full rounded-xl border border-black/10 bg-surface px-3 text-sm outline-none">
+                  <option value="member">member</option>
+                  <option value="org_admin">org_admin</option>
+                </select>
+              </Field>
+              <Field label="Temp password"><Input type="text" value={invite.tempPassword} onChange={(e) => setInvite({ ...invite, tempPassword: e.target.value })} required /></Field>
+            </div>
+            <Button type="submit">Invite</Button>
+          </form>
+        </Card>
+        <Card>
+          <h2 className="mb-3 text-sm font-medium">Alert channels</h2>
+          {channels.length === 0 ? (
+            <p className="text-sm text-ink-soft">Only stdout is active. Add Slack/Teams/PagerDuty/SMTP keys to <code>.env</code> to enable more.</p>
+          ) : (
+            <ul className="flex flex-wrap gap-2">
+              {channels.map((c) => <li key={c} className="rounded-full bg-surface-muted px-3 py-1 text-xs capitalize">{c}</li>)}
+            </ul>
+          )}
+          <button onClick={onTestAlert} className="mt-4 text-sm text-accent hover:underline">Send test alert</button>
+        </Card>
       </div>
 
       <h2 className="mt-8 text-sm font-medium">Users</h2>

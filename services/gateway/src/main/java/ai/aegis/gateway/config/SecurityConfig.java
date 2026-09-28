@@ -60,7 +60,9 @@ public class SecurityConfig {
                 ).permitAll()
                 .anyRequest().authenticated()
             )
-            .exceptionHandling(ex -> ex.authenticationEntryPoint(unauthorizedEntryPoint()))
+            .exceptionHandling(ex -> ex
+                    .authenticationEntryPoint(unauthorizedEntryPoint())
+                    .accessDeniedHandler(accessDeniedHandler()))
             .addFilterBefore(authenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .httpBasic(AbstractHttpConfigurer::disable)
             .formLogin(AbstractHttpConfigurer::disable);
@@ -77,6 +79,14 @@ public class SecurityConfig {
             response.setStatus(HttpStatus.UNAUTHORIZED.value());
             response.setContentType("application/json");
             response.getWriter().write("{\"error\":\"unauthorized\"}");
+        };
+    }
+
+    private org.springframework.security.web.access.AccessDeniedHandler accessDeniedHandler() {
+        return (request, response, ex) -> {
+            response.setStatus(HttpStatus.FORBIDDEN.value());
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\":\"forbidden\"}");
         };
     }
 

@@ -28,11 +28,17 @@ public class AdminController {
     private final UserRepository users;
     private final AuditLogRepository auditLogs;
     private final IncidentRepository incidents;
+    private final ai.aegis.gateway.alert.AlertService alerts;
+    private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
-    public AdminController(UserRepository users, AuditLogRepository auditLogs, IncidentRepository incidents) {
+    public AdminController(UserRepository users, AuditLogRepository auditLogs, IncidentRepository incidents,
+                           ai.aegis.gateway.alert.AlertService alerts,
+                           org.springframework.security.crypto.password.PasswordEncoder passwordEncoder) {
         this.users = users;
         this.auditLogs = auditLogs;
         this.incidents = incidents;
+        this.alerts = alerts;
+        this.passwordEncoder = passwordEncoder;
     }
 
     public record UserView(String id, String email, String fullName, String role,
@@ -67,5 +73,41 @@ public class AdminController {
                 "users", users.countByOrgId(principal.orgId()),
                 "incidents", incidents.countByOrgId(principal.orgId())
         );
+    }
+
+    @org.springframework.web.bind.annotation.GetMapping("/alerts/status")
+    public Map<String, Object> alertStatus() {
+        return Map.of("configuredChannels", alerts.configuredChannels());
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/alerts/test")
+    public Map<String, Object> alertTest() {
+        alerts.dispatch("Test alert", "This is a test alert from AegisAI.", "critical", "low");
+        return Map.of("status", "sent", "channels", alerts.configuredChannels());
+    }
+
+    // ---- Invite a member into the caller's org ----
+    public record InviteRequest(@jakarta.validation.constraints.Email @jakarta.validation.constraints.NotBlank String email,
+                                @jakarta.validation.constraints.NotBlank String fullName,
+                                String role, @jakarta.validation.constraints.NotBlank String tempPassword) {
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/users/invite")
+    @org.springframework.transaction.annotation.Transactional
+    public UserView invite(@AuthenticationPrincipal AuthPrincipal principal,
+                           @jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody InviteRequest req) {
+        String email = req.email().trim().toLowerCase(java.util.Locale.ROOT);
+        if (users.existsByEmail(email)) {
+            throw ai.aegis.gateway.common.ApiException.conflict("Email already registered");
+        }
+        // Members and org_admins can be invited; only super_admin could create another super_admin (not exposed).
+        ai.aegis.gateway.user.Role role = "org_admin".equalsIgnoreCase(req.role())
+                ? ai.aegis.gateway.user.Role.ORG_ADMIN : ai.aegis.gateway.user.Role.MEMBER;
+        ai.aegis.gateway.user.User u = new ai.aegis.gateway.user.User(
+                java.util.UUID.randomUUID(), principal.orgId(), email,
+                passwordEncoder.encode(req.tempPassword()), req.fullName().trim(), role);
+        users.save(u);
+        return new UserView(u.getId().toString(), u.getEmail(), u.getFullName(), u.getRole().toDb(),
+                u.isActive(), u.getLastLoginAt());
     }
 }
