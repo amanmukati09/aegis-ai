@@ -79,6 +79,64 @@ public class ChatController {
         return service.send(principal, req.sessionId(), req.message(), req.provider(), req.model(), clientIp(http));
     }
 
+    /**
+     * Stream a chat turn token-by-token over SSE.
+     *
+     * The DB work (input guardrail, persist user message, build history) is done up front and
+     * committed before we open the stream. Tokens from the ML sidecar are relayed as they
+     * arrive; the assembled reply is accumulated, output-guardrailed, and persisted when the
+     * upstream stream completes. The client receives:
+     *   event: session  -> the session id (first, so a new session can be tracked)
+     *   data: <token>    -> incremental content chunks
+     *   data: [DONE]     -> terminal marker
+     */
+    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public reactor.core.publisher.Flux<org.springframework.http.codec.ServerSentEvent<String>> stream(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @Valid @RequestBody SendRequest req, HttpServletRequest http) {
+
+        String ip = clientIp(http);
+        // Blocking prep runs on the request (virtual) thread before the reactive stream starts.
+        ChatService.StreamPrep prep = service.prepareStream(
+                principal, req.sessionId(), req.message(), req.provider(), req.model(), ip);
+
+        StringBuilder assembled = new StringBuilder();
+
+        var sessionEvent = reactor.core.publisher.Flux.just(
+                org.springframework.http.codec.ServerSentEvent.<String>builder()
+                        .event("session").data(prep.sessionId().toString()).build());
+
+        var tokenEvents = ml.chatStream(prep.mlRequest())
+                .filter(chunk -> chunk != null && !chunk.equals("[DONE]"))
+                .doOnNext(assembled::append)
+                .map(chunk -> org.springframework.http.codec.ServerSentEvent.<String>builder()
+                        .data(chunk).build());
+
+        // After the token stream completes, finalize (persist + output guardrail) off the
+        // event loop, then emit the terminal marker.
+        var doneEvent = reactor.core.publisher.Mono.fromCallable(() -> {
+                    service.finalizeStream(principal, prep.sessionId(), assembled.toString(), ip);
+                    return org.springframework.http.codec.ServerSentEvent.<String>builder()
+                            .data("[DONE]").build();
+                })
+                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic());
+
+        return sessionEvent.concatWith(tokenEvents).concatWith(doneEvent);
+    }
+
+    @GetMapping("/search")
+    public List<ChatService.SearchHit> search(@AuthenticationPrincipal AuthPrincipal principal,
+                                              @org.springframework.web.bind.annotation.RequestParam("q") String q) {
+        return service.search(principal, q);
+    }
+
+    /** Lexicon tone/urgency of a message (used by the UI to badge operator sentiment). */
+    @PostMapping(value = "/sentiment", produces = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, Object> sentiment(@RequestBody Map<String, String> body) {
+        Map<String, Object> r = ml.sentiment(body == null ? "" : body.getOrDefault("text", ""));
+        return r == null ? Map.of("label", "neutral", "score", 0.0, "urgency", "normal") : r;
+    }
+
     private String clientIp(HttpServletRequest http) {
         String forwarded = http.getHeader("X-Forwarded-For");
         if (forwarded != null && !forwarded.isBlank()) {

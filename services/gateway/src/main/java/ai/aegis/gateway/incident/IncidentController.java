@@ -89,6 +89,18 @@ public class IncidentController {
         return ml.runbook(java.util.Map.of("incident", ctx));
     }
 
+    @GetMapping("/{id}/similar")
+    public java.util.List<java.util.Map<String, Object>> similar(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable UUID id) {
+        return service.similar(principal, id);
+    }
+
+    @GetMapping("/{id}/timeline")
+    public java.util.List<java.util.Map<String, Object>> timeline(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable UUID id) {
+        return service.timeline(principal, id);
+    }
+
     @PostMapping("/{id}/report.pdf")
     public ResponseEntity<byte[]> reportPdf(@AuthenticationPrincipal AuthPrincipal principal,
                                             @PathVariable UUID id) {

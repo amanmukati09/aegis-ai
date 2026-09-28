@@ -109,8 +109,16 @@ export const analyticsApi = {
 export type GraphNode = { id: string; label: string; weight: number };
 export type GraphEdge = { source: string; target: string; weight: number };
 export type DependencyGraph = { nodes: GraphNode[]; edges: GraphEdge[]; hasData: boolean };
+export type BlastRadius = {
+  component: string;
+  directImpact: string[];
+  indirectImpact: string[];
+  radius: number;
+};
 export const dependencyApi = {
   graph: (t: string) => apiGet<DependencyGraph>("/dependency/graph", t),
+  blastRadius: (t: string, component: string) =>
+    apiGet<BlastRadius>(`/dependency/blast-radius/${encodeURIComponent(component)}`, t),
 };
 
 // ---- Async jobs (bulk analysis) ----
@@ -130,6 +138,86 @@ export const jobsApi = {
 export const ingestApi = {
   fromUrl: (t: string, url: string) =>
     apiPost<{ lines: string[]; count: number; source: string }>("/ingest/from-url", { url }, t),
+};
+
+// ---- Track C capabilities (dormant/extended) ----
+export type TrackCCapability = {
+  key: string;
+  label: string;
+  adapter: string;
+  active: boolean;
+  status: string;
+};
+export type TrackCStatus = { mode: string; capabilities: TrackCCapability[] };
+export const trackcApi = {
+  status: (t: string) => apiGet<TrackCStatus>("/trackc/status", t),
+};
+
+// ---- Insights (analytics suite) ----
+export type HealthScore = {
+  score: number;
+  status: string;
+  totalIncidents: number;
+  openIncidents: number;
+  resolvedIncidents: number;
+  critical1h: number;
+  incidentVelocity: number;
+  topRiskComponent: string;
+  resolutionRate: number;
+};
+export type Benchmark = {
+  totalIncidents: number;
+  diagnosisAccuracy: number;
+  remediationRate: number;
+  resolutionRate: number;
+  avgResolutionHours: number;
+  recent7d: number;
+  withRootCause: number;
+  withRemediation: number;
+};
+export type Prediction = { type: string; title: string; detail: string; confidence: number };
+export type Predictions = {
+  predictions: Prediction[];
+  riskLevel: string;
+  totalIncidents: number;
+  summary: string;
+};
+export type IncidentCluster = {
+  name: string;
+  count: number;
+  commonFeatures: string[];
+  severityDistribution: Record<string, number>;
+  incidentIds: string[];
+};
+export type Clusters = {
+  clusters: IncidentCluster[];
+  totalIncidents: number;
+  totalClusters: number;
+  summary: string;
+};
+export const insightsApi = {
+  healthScore: (t: string) => apiGet<HealthScore>("/insights/health-score", t),
+  benchmark: (t: string) => apiGet<Benchmark>("/insights/benchmark", t),
+  predictions: (t: string) => apiGet<Predictions>("/insights/predictions", t),
+  clusters: (t: string) => apiGet<Clusters>("/insights/clusters", t),
+};
+
+// ---- RL triage ----
+export type TriageItem = {
+  incident_id: string;
+  title: string;
+  severity: string;
+  status: string;
+  component?: string;
+  priority: number;
+  policy: string;
+  confidence: number;
+  q_values: number[];
+  state: number[];
+};
+export const triageApi = {
+  queue: (t: string) => apiGet<TriageItem[]>("/triage/queue", t),
+  train: (t: string) => apiPost<{ trained_on: number; q_states: number }>("/triage/train", {}, t),
 };
 
 // ---- Live monitor ----

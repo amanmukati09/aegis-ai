@@ -9,10 +9,14 @@ import {
   incidentCodeFix,
   incidentRcaTree,
   incidentRunbook,
+  incidentSimilar,
+  incidentTimeline,
   downloadIncidentPdf,
   listIncidents,
   resolveIncident,
   type Incident,
+  type SimilarIncident,
+  type TimelineEvent,
 } from "@/lib/incidents-api";
 import { Button, Card, ErrorText, Field, Input, SeverityBadge, StatusBadge } from "@/components/ui";
 import { Markdown } from "@/components/Markdown";
@@ -190,6 +194,14 @@ function DetailDrawer({
   const [rca, setRca] = useState<Record<string, unknown> | null>(null);
   const [codeFix, setCodeFix] = useState<Record<string, unknown> | null>(null);
   const [runbook, setRunbook] = useState<Record<string, unknown> | null>(null);
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [similar, setSimilar] = useState<SimilarIncident[]>([]);
+
+  useEffect(() => {
+    if (!token) return;
+    incidentTimeline(token, incident.id).then(setTimeline).catch(() => setTimeline([]));
+    incidentSimilar(token, incident.id).then(setSimilar).catch(() => setSimilar([]));
+  }, [token, incident.id]);
 
   async function runRca() {
     if (!token) return;
@@ -271,6 +283,38 @@ function DetailDrawer({
           <Detail label="Resolved" value={incident.resolvedAt ? new Date(incident.resolvedAt).toLocaleString() : null} />
           <Detail label="Resolution notes" value={incident.resolutionNotes} />
         </dl>
+
+        {/* Timeline */}
+        {timeline.length > 0 && (
+          <div className="mt-5">
+            <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">Timeline</p>
+            <ol className="relative ml-2 border-l border-line/15 pl-4">
+              {timeline.map((e, i) => (
+                <li key={i} className="mb-3 last:mb-0">
+                  <span className="absolute -left-[5px] mt-1.5 h-2.5 w-2.5 rounded-full bg-accent" />
+                  <p className="text-sm font-medium">{e.label}</p>
+                  {e.at && <p className="text-xs text-ink-soft">{new Date(e.at).toLocaleString()}</p>}
+                  {e.detail && <p className="text-xs text-ink-soft">{e.detail}</p>}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {/* Similar incidents */}
+        {similar.length > 0 && (
+          <div className="mt-5">
+            <p className="mb-2 text-xs uppercase tracking-wide text-ink-soft">Similar incidents</p>
+            <ul className="space-y-1">
+              {similar.map((s) => (
+                <li key={s.id} className="flex items-center justify-between rounded-lg bg-surface-2 px-3 py-2 text-sm">
+                  <span className="truncate">{s.title}</span>
+                  <span className="ml-2 shrink-0 text-xs text-ink-soft">{Math.round(s.score * 100)}% match</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* AI actions */}
         <div className="mt-5 flex gap-2">

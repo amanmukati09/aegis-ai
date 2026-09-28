@@ -1,0 +1,18 @@
+# Track C heavy-ML dependencies — install-to-activate (NOT for the small EC2 box).
+# On the laptop:  pip install -r requirements.txt -r requirements-heavy.txt
+# Then the /v1/heavy/status capabilities flip to available and you can implement run().
+#
+# Pin exact versions when you activate; ranges here are guidance only.
+
+# MTAD-GAT multivariate anomaly detection + DQN triage policy
+torch>=2.2,<3.0
+
+# PCMCI causal discovery
+tigramite>=5.2
+
+# Real sentence-transformer embeddings (optional upgrade to the feature-hash embed)
+sentence-transformers>=3.0
+
+# Classic ML helpers used by the heavy pipelines
+scikit-learn>=1.4
+pandas>=2.2

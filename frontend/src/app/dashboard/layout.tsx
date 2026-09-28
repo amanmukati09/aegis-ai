@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Activity, AlertTriangle, BarChart3, Bell, Bot, Boxes, FileSearch,
+  Activity, AlertTriangle, BarChart3, Bell, Bot, Boxes, Brain, FileSearch, Gauge,
   KeyRound, LayoutDashboard, Network, Radio, Shield, Stethoscope, Menu, X,
 } from "lucide-react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -18,8 +18,10 @@ const NAV = [
   { href: "/dashboard/incidents", label: "Incidents", icon: AlertTriangle },
   { href: "/dashboard/copilot", label: "AI Copilot", icon: Bot },
   { href: "/dashboard/analytics", label: "Smart Analytics", icon: BarChart3 },
+  { href: "/dashboard/insights", label: "Insights", icon: Gauge },
   { href: "/dashboard/dependency", label: "Dependency Map", icon: Network },
   { href: "/dashboard/live", label: "Live Monitor", icon: Radio },
+  { href: "/dashboard/triage", label: "RL Triage", icon: Brain },
   { href: "/dashboard/bulk", label: "Bulk Analysis", icon: FileSearch },
   { href: "/dashboard/streams", label: "Streams", icon: Boxes },
   { href: "/dashboard/notifications", label: "Notifications", icon: Bell },

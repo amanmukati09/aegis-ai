@@ -75,6 +75,16 @@ export function incidentRunbook(token: string, id: string) {
   return apiPost<Record<string, unknown>>(`/incidents/${id}/runbook`, {}, token);
 }
 
+export type SimilarIncident = { id: string; title: string; severity: string; status: string; score: number };
+export function incidentSimilar(token: string, id: string) {
+  return apiGet<SimilarIncident[]>(`/incidents/${id}/similar`, token);
+}
+
+export type TimelineEvent = { type: string; label: string; at?: string; detail?: string };
+export function incidentTimeline(token: string, id: string) {
+  return apiGet<TimelineEvent[]>(`/incidents/${id}/timeline`, token);
+}
+
 export async function downloadIncidentPdf(token: string, id: string) {
   const res = await fetch(`/api/gateway/incidents/${id}/report.pdf`, {
     method: "POST",

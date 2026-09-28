@@ -28,14 +28,78 @@ public class IncidentService {
     private final AuditService auditService;
     private final ai.aegis.gateway.notification.NotificationService notifications;
     private final ai.aegis.gateway.alert.AlertService alerts;
+    private final ai.aegis.gateway.ml.MlClient ml;
 
     public IncidentService(IncidentRepository repository, AuditService auditService,
                            ai.aegis.gateway.notification.NotificationService notifications,
-                           ai.aegis.gateway.alert.AlertService alerts) {
+                           ai.aegis.gateway.alert.AlertService alerts,
+                           ai.aegis.gateway.ml.MlClient ml) {
         this.repository = repository;
         this.auditService = auditService;
         this.notifications = notifications;
         this.alerts = alerts;
+        this.ml = ml;
+    }
+
+    /** Best-effort: embed the incident text and store the vector for similarity search. */
+    private void embedAsync(UUID id, String text) {
+        try {
+            java.util.List<Double> vec = ml.embed(text);
+            if (vec != null && !vec.isEmpty()) {
+                String literal = "[" + vec.stream().map(String::valueOf)
+                        .collect(java.util.stream.Collectors.joining(",")) + "]";
+                repository.setEmbedding(id, literal);
+            }
+        } catch (Exception ignored) {
+            // Similarity is a nice-to-have; never fail incident creation over it.
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.List<java.util.Map<String, Object>> similar(AuthPrincipal principal, UUID id) {
+        Incident i = require(principal, id);
+        java.util.List<Double> vec = ml.embed(
+                (i.getTitle() == null ? "" : i.getTitle()) + " "
+                        + (i.getAnomalyDescription() == null ? "" : i.getAnomalyDescription()));
+        if (vec == null || vec.isEmpty()) {
+            return java.util.List.of();
+        }
+        String literal = "[" + vec.stream().map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(",")) + "]";
+        return repository.findSimilar(principal.orgId(), id, literal).stream()
+                .map(row -> {
+                    // row = [id(text), title, severity, status, score(numeric)]
+                    double score = row[4] == null ? 0.0 : ((Number) row[4]).doubleValue();
+                    return java.util.Map.<String, Object>of(
+                            "id", row[0] == null ? "" : row[0].toString(),
+                            "title", row[1] == null ? "" : row[1].toString(),
+                            "severity", row[2] == null ? "unknown" : row[2].toString(),
+                            "status", row[3] == null ? "" : row[3].toString(),
+                            "score", Math.round(score * 100) / 100.0);
+                })
+                .toList();
+    }
+
+    /** Build a lifecycle timeline for an incident. */
+    @Transactional(readOnly = true)
+    public java.util.List<java.util.Map<String, Object>> timeline(AuthPrincipal principal, UUID id) {
+        Incident i = require(principal, id);
+        java.util.List<java.util.Map<String, Object>> events = new java.util.ArrayList<>();
+        events.add(java.util.Map.of("type", "detected", "label", "Incident detected",
+                "at", i.getDetectedAt() == null ? "" : i.getDetectedAt().toString()));
+        if (i.getRootCause() != null && !i.getRootCause().isBlank()) {
+            events.add(java.util.Map.of("type", "diagnosed", "label", "Root cause identified",
+                    "detail", i.getRootCause()));
+        }
+        if (i.getAssignedTo() != null) {
+            events.add(java.util.Map.of("type", "assigned", "label", "Incident claimed"));
+        }
+        if (i.getResolvedAt() != null) {
+            events.add(java.util.Map.of("type", "resolved", "label", "Incident resolved",
+                    "at", i.getResolvedAt().toString(),
+                    "detail", i.getResolutionNotes() == null ? "" : i.getResolutionNotes()));
+        }
+        return events;
     }
 
     @Transactional(readOnly = true)
@@ -63,6 +127,7 @@ public class IncidentService {
                 UUID.randomUUID(), principal.orgId(), principal.userId(),
                 req.title(), req.severity(), req.rawLogs(), req.anomalyDescription());
         repository.save(incident);
+        embedAsync(incident.getId(), req.title() + " " + (req.anomalyDescription() == null ? "" : req.anomalyDescription()));
         auditService.record(principal.orgId(), principal.userId(), principal.email(),
                 "incident_created", "incident", incident.getId().toString(), ip);
         notifications.create(principal.userId(), "incident",

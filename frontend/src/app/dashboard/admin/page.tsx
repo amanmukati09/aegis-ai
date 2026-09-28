@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/lib/auth-context";
-import { adminApi, type AdminUser, type AuditEntry } from "@/lib/platform-api";
+import { adminApi, trackcApi, type AdminUser, type AuditEntry, type TrackCStatus } from "@/lib/platform-api";
 import { Button, Card, ErrorText, Field, Input } from "@/components/ui";
 
 function AdminInner() {
@@ -12,19 +12,21 @@ function AdminInner() {
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [metrics, setMetrics] = useState<Record<string, number>>({});
   const [channels, setChannels] = useState<string[]>([]);
+  const [trackc, setTrackc] = useState<TrackCStatus | null>(null);
   const [invite, setInvite] = useState({ email: "", fullName: "", role: "member", tempPassword: "" });
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
-    const [u, a, m, c] = await Promise.all([
+    const [u, a, m, c, tc] = await Promise.all([
       adminApi.users(token),
       adminApi.auditLogs(token),
       adminApi.metrics(token),
       adminApi.alertStatus(token).catch(() => ({ configuredChannels: [] })),
+      trackcApi.status(token).catch(() => null),
     ]);
-    setUsers(u); setAudit(a); setMetrics(m); setChannels(c.configuredChannels);
+    setUsers(u); setAudit(a); setMetrics(m); setChannels(c.configuredChannels); setTrackc(tc);
   }, [token]);
 
   useEffect(() => { load(); }, [load]);
@@ -93,6 +95,32 @@ function AdminInner() {
           <button onClick={onTestAlert} className="mt-4 text-sm text-accent hover:underline">Send test alert</button>
         </Card>
       </div>
+
+      {trackc && (
+        <Card className="mt-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-medium">Platform capabilities (Track C)</h2>
+            <span className={"rounded-full px-2 py-0.5 text-xs font-medium " +
+              (trackc.mode === "extended" ? "bg-emerald-500/15 text-emerald-500" : "bg-surface-2 text-ink-soft")}>
+              {trackc.mode} mode
+            </span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {trackc.capabilities.map((c) => (
+              <div key={c.key} className="rounded-xl border border-line/10 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium">{c.label}</p>
+                  <span className={"h-2 w-2 rounded-full " + (c.active ? "bg-emerald-500" : "bg-ink-soft/30")} />
+                </div>
+                <p className="mt-1 text-xs text-ink-soft">{c.status}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-ink-soft">
+            Dormant on this deployment. Activate on a capable host — see <code>LAPTOP_SETUP.md</code>.
+          </p>
+        </Card>
+      )}
 
       <h2 className="mt-8 text-sm font-medium">Users</h2>
       <Card className="mt-2 p-0">

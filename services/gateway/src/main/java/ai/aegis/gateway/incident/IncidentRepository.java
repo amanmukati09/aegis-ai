@@ -35,6 +35,27 @@ public interface IncidentRepository extends JpaRepository<Incident, UUID> {
 
     List<Incident> findTop10ByOrgIdOrderByDetectedAtDesc(UUID orgId);
 
+    // --- pgvector similarity ---
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @Query(value = "UPDATE incidents SET embedding = CAST(:vec AS vector) WHERE id = :id", nativeQuery = true)
+    void setEmbedding(UUID id, String vec);
+
+    /**
+     * Nearest incidents by cosine distance (<=>) within an org, excluding self.
+     * Returns Object[] rows [id, title, severity, status, score] — an Object[] projection
+     * is more robust than an interface projection for computed native columns.
+     */
+    @Query(value = """
+            SELECT CAST(id AS text), title, severity, status,
+                   (1 - (embedding <=> CAST(:vec AS vector))) AS score
+            FROM incidents
+            WHERE org_id = :orgId AND embedding IS NOT NULL AND id <> :selfId
+            ORDER BY embedding <=> CAST(:vec AS vector)
+            LIMIT 5
+            """, nativeQuery = true)
+    List<Object[]> findSimilar(UUID orgId, UUID selfId, String vec);
+
     interface CountByLabel {
         String getLabel();
         long getTotal();

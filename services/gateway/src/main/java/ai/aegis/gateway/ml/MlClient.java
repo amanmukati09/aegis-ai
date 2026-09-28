@@ -94,6 +94,43 @@ public class MlClient {
         return post("/v1/runbook", req, java.util.Map.class);
     }
 
+    @SuppressWarnings("unchecked")
+    public java.util.Map<String, Object> triageQueue(Object req) {
+        return post("/v1/triage/queue", req, java.util.Map.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    public java.util.Map<String, Object> triageTrain(Object req) {
+        return post("/v1/triage/train", req, java.util.Map.class);
+    }
+
+    /** Best-effort message sentiment/urgency; returns null on failure (non-critical). */
+    @SuppressWarnings("unchecked")
+    public java.util.Map<String, Object> sentiment(String text) {
+        try {
+            return webClient.post().uri("/v1/sentiment")
+                    .bodyValue(java.util.Map.of("text", text == null ? "" : text))
+                    .retrieve().bodyToMono(java.util.Map.class).timeout(TIMEOUT).block();
+        } catch (Exception e) {
+            log.warn("sentiment failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Embed text to a float vector (returns null on failure — embedding is best-effort). */
+    @SuppressWarnings("unchecked")
+    public java.util.List<Double> embed(String text) {
+        try {
+            java.util.Map<String, Object> resp = webClient.post().uri("/v1/embed")
+                    .bodyValue(java.util.Map.of("text", text == null ? "" : text))
+                    .retrieve().bodyToMono(java.util.Map.class).timeout(TIMEOUT).block();
+            return resp == null ? null : (java.util.List<Double>) resp.get("embedding");
+        } catch (Exception e) {
+            log.warn("embed failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
     /** Fetch a generated PDF report as raw bytes. */
     public byte[] reportPdf(Object req) {
         try {

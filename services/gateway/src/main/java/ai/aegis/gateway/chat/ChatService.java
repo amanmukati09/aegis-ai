@@ -120,6 +120,75 @@ public class ChatService {
         return new SendResponse(session.getId().toString(), reply, resp.model());
     }
 
+    /**
+     * Prepare a streaming turn: run the input guardrail, persist the (masked) user message,
+     * and build the ML chat request from the full history. Returns everything the controller
+     * needs to open the SSE stream. Runs in its own transaction (commits before streaming).
+     */
+    @Transactional
+    public StreamPrep prepareStream(AuthPrincipal principal, String sessionIdStr, String message,
+                                    String provider, String model, String ip) {
+        if (guardrails.isPromptInjection(message)) {
+            audit.record(principal.orgId(), principal.userId(), principal.email(),
+                    "chat_injection_blocked", "chat_session", sessionIdStr, ip);
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "This request was blocked by AegisAI security guardrails.");
+        }
+        ChatSession session = resolveOrCreate(principal, sessionIdStr, message);
+        String masked = guardrails.maskPii(message);
+        messages.save(new ChatMessage(UUID.randomUUID(), session.getId(), "user", masked));
+
+        List<Map<String, String>> history = new ArrayList<>();
+        for (ChatMessage m : messages.findBySessionIdOrderByCreatedAtAsc(session.getId())) {
+            history.add(Map.of("role", m.getRole(), "content", m.getContent()));
+        }
+        ChatRequest req = new ChatRequest(masked, history,
+                guardrails.securitySystemPrompt(), provider, model);
+        return new StreamPrep(session.getId(), req);
+    }
+
+    /**
+     * Finalize a streaming turn: run the output guardrail on the assembled reply, persist the
+     * assistant message, and audit. Returns the (possibly sanitized) reply actually stored.
+     */
+    @Transactional
+    public String finalizeStream(AuthPrincipal principal, UUID sessionId, String assembledReply, String ip) {
+        String reply = assembledReply == null ? "" : assembledReply;
+        if (guardrails.isDestructive(reply)) {
+            reply = "\u26a0\ufe0f The generated response was withheld because it contained a "
+                    + "potentially destructive command. Please rephrase your request.";
+            audit.record(principal.orgId(), principal.userId(), principal.email(),
+                    "chat_output_blocked", "chat_session", sessionId.toString(), ip);
+        }
+        messages.save(new ChatMessage(UUID.randomUUID(), sessionId, "assistant", reply));
+        audit.record(principal.orgId(), principal.userId(), principal.email(),
+                "chat_message_stream", "chat_session", sessionId.toString(), ip);
+        return reply;
+    }
+
+    /** Full-text search across the caller's own chat messages. */
+    @Transactional(readOnly = true)
+    public List<SearchHit> search(AuthPrincipal principal, String query) {
+        String q = query == null ? "" : query.trim();
+        if (q.isEmpty()) {
+            return List.of();
+        }
+        return messages.searchByUser(principal.userId(), q).stream()
+                .map(row -> new SearchHit(
+                        row[0] == null ? "" : row[0].toString(),   // session id
+                        row[1] == null ? "" : row[1].toString(),   // session title
+                        row[2] == null ? "" : row[2].toString(),   // role
+                        row[3] == null ? "" : row[3].toString()))  // snippet
+                .toList();
+    }
+
+    /** Data the controller needs to open an SSE stream after the DB work is committed. */
+    public record StreamPrep(UUID sessionId, ai.aegis.gateway.ml.MlDtos.ChatRequest mlRequest) {
+    }
+
+    public record SearchHit(String sessionId, String sessionTitle, String role, String snippet) {
+    }
+
     private ChatSession resolveOrCreate(AuthPrincipal principal, String sessionIdStr, String firstMessage) {
         if (sessionIdStr != null && !sessionIdStr.isBlank()) {
             return requireSession(principal, UUID.fromString(sessionIdStr));

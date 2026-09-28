@@ -74,4 +74,39 @@ public class DependencyController {
 
         return Map.of("nodes", nodes, "edges", edges, "hasData", !nodes.isEmpty());
     }
+
+    @GetMapping("/blast-radius/{component}")
+    public Map<String, Object> blastRadius(@AuthenticationPrincipal AuthPrincipal principal,
+                                           @org.springframework.web.bind.annotation.PathVariable String component) {
+        // Rebuild the co-occurrence adjacency, then BFS from the component to find the
+        // set of components reachable within 2 hops (the likely blast radius).
+        List<Incident> recent = incidents.findByOrgId(principal.orgId(), PageRequest.of(0, 300)).getContent();
+        Map<String, java.util.Set<String>> adj = new LinkedHashMap<>();
+        for (Incident i : recent) {
+            String text = ((i.getTitle() == null ? "" : i.getTitle()) + " "
+                    + (i.getAnomalyDescription() == null ? "" : i.getAnomalyDescription())).toLowerCase();
+            List<String> hits = COMPONENTS.stream().filter(text::contains).toList();
+            for (String a : hits) {
+                for (String b : hits) {
+                    if (!a.equals(b)) {
+                        adj.computeIfAbsent(a, k -> new java.util.LinkedHashSet<>()).add(b);
+                    }
+                }
+            }
+        }
+        String start = component.toLowerCase();
+        java.util.Set<String> direct = adj.getOrDefault(start, java.util.Set.of());
+        java.util.Set<String> indirect = new java.util.LinkedHashSet<>();
+        for (String d : direct) {
+            indirect.addAll(adj.getOrDefault(d, java.util.Set.of()));
+        }
+        indirect.remove(start);
+        indirect.removeAll(direct);
+        return Map.of(
+                "component", start,
+                "directImpact", new ArrayList<>(direct),
+                "indirectImpact", new ArrayList<>(indirect),
+                "radius", direct.size() + indirect.size()
+        );
+    }
 }

@@ -58,6 +58,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OLLAMA_URL: ${OLLAMA_URL:-}
       VECTOR_STORE: ${VECTOR_STORE:-pgvector}
+      ML_DATA_DIR: /app/data
+    volumes:
+      - ml_data:/app/data
     ports:
       - "8001:8001"
     healthcheck:
@@ -140,3 +143,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  ml_data:
