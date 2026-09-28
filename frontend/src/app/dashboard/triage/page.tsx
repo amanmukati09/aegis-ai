@@ -41,7 +41,7 @@ export default function TriagePage() {
     setTrainMsg(null);
     try {
       const r = await triageApi.train(token);
-      setTrainMsg(`Trained on ${r.trained_on} resolved incidents · ${r.q_states} learned states`);
+      setTrainMsg(`Trained on ${r.trained_on ?? 0} resolved incidents · ${r.q_states ?? 0} learned states`);
       await load();
     } catch {
       setTrainMsg("Training failed");
@@ -112,7 +112,7 @@ export default function TriagePage() {
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-xs text-ink-soft">confidence</p>
-                  <p className="text-lg font-semibold">{it.confidence.toFixed(0)}%</p>
+                  <p className="text-lg font-semibold">{(it.confidence ?? 0).toFixed(0)}%</p>
                 </div>
               </Card>
             </motion.div>

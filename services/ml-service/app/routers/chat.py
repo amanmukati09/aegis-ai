@@ -9,6 +9,11 @@ from ..schemas import ChatRequest, ChatResponse
 
 router = APIRouter(prefix="/v1", tags=["chat"])
 
+# Sentinel prefix on a streamed error's data payload. The gateway relays SSE *data* only
+# (WebFlux strips the event name), so this lets it detect and surface stream errors instead
+# of appending them to the assistant reply.
+_ERROR_SENTINEL = "__AEGIS_STREAM_ERROR__"
+
 _DEFAULT_SYSTEM = (
     "You are AegisAI, an expert SRE/DevOps copilot. Be concise, technical, and "
     "actionable. Never output destructive commands (rm -rf /, DROP DATABASE, etc.)."
@@ -55,7 +60,10 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
             for token in provider.stream(gen):
                 yield f"data: {token}\n\n"
         except Exception as exc:  # surface a terminal error to the client
-            yield f"event: error\ndata: {exc}\n\n"
+            # Prefix with a stable sentinel so downstream consumers (the gateway relays
+            # SSE data payloads only, not event names) can distinguish an error from a
+            # normal token. Both the event name and the sentinel are emitted.
+            yield f"event: error\ndata: {_ERROR_SENTINEL}{exc}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

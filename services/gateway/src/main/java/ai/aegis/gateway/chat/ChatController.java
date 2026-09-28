@@ -100,7 +100,19 @@ public class ChatController {
         ChatService.StreamPrep prep = service.prepareStream(
                 principal, req.sessionId(), req.message(), req.provider(), req.model(), ip);
 
-        StringBuilder assembled = new StringBuilder();
+        // StringBuffer (not StringBuilder): appended on the reactive stream thread and read
+        // by finalize, which may run on a boundedElastic thread on client cancel.
+        StringBuffer assembled = new StringBuffer();
+
+        // Guard so finalize runs exactly once — whether the stream completes normally or the
+        // client aborts mid-stream (otherwise an aborted turn leaves a dangling user message
+        // with no assistant reply).
+        java.util.concurrent.atomic.AtomicBoolean finalized = new java.util.concurrent.atomic.AtomicBoolean(false);
+        Runnable finalize = () -> {
+            if (finalized.compareAndSet(false, true)) {
+                service.finalizeStream(principal, prep.sessionId(), assembled.toString(), ip);
+            }
+        };
 
         var sessionEvent = reactor.core.publisher.Flux.just(
                 org.springframework.http.codec.ServerSentEvent.<String>builder()
@@ -108,14 +120,26 @@ public class ChatController {
 
         var tokenEvents = ml.chatStream(prep.mlRequest())
                 .filter(chunk -> chunk != null && !chunk.equals("[DONE]"))
-                .doOnNext(assembled::append)
-                .map(chunk -> org.springframework.http.codec.ServerSentEvent.<String>builder()
-                        .data(chunk).build());
+                .map(chunk -> {
+                    // The ML sidecar marks a stream error with a sentinel on the data payload.
+                    // Surface it as an SSE error frame; do NOT append it to the assistant reply.
+                    if (chunk.startsWith(ML_STREAM_ERROR_SENTINEL)) {
+                        String msg = chunk.substring(ML_STREAM_ERROR_SENTINEL.length());
+                        return org.springframework.http.codec.ServerSentEvent.<String>builder()
+                                .event("error").data(msg.isBlank() ? "stream error" : msg).build();
+                    }
+                    assembled.append(chunk);
+                    return org.springframework.http.codec.ServerSentEvent.<String>builder()
+                            .data(chunk).build();
+                })
+                // Persist whatever was assembled if the client disconnects mid-stream.
+                .doOnCancel(() -> reactor.core.scheduler.Schedulers.boundedElastic()
+                        .schedule(finalize));
 
         // After the token stream completes, finalize (persist + output guardrail) off the
         // event loop, then emit the terminal marker.
         var doneEvent = reactor.core.publisher.Mono.fromCallable(() -> {
-                    service.finalizeStream(principal, prep.sessionId(), assembled.toString(), ip);
+                    finalize.run();
                     return org.springframework.http.codec.ServerSentEvent.<String>builder()
                             .data("[DONE]").build();
                 })
@@ -123,6 +147,9 @@ public class ChatController {
 
         return sessionEvent.concatWith(tokenEvents).concatWith(doneEvent);
     }
+
+    /** Must match _ERROR_SENTINEL in the ML service chat router. */
+    private static final String ML_STREAM_ERROR_SENTINEL = "__AEGIS_STREAM_ERROR__";
 
     @GetMapping("/search")
     public List<ChatService.SearchHit> search(@AuthenticationPrincipal AuthPrincipal principal,

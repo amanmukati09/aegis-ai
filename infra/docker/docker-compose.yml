@@ -50,7 +50,7 @@ services:
     container_name: aegisai-ml
     environment:
       DEFAULT_AI_PROVIDER: ${DEFAULT_AI_PROVIDER:-groq}
-      DEFAULT_AI_MODEL: ${DEFAULT_AI_MODEL:-llama-3.1-8b-instant}
+      DEFAULT_AI_MODEL: ${DEFAULT_AI_MODEL:-openai/gpt-oss-20b}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}

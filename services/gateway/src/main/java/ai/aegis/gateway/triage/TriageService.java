@@ -85,7 +85,8 @@ public class TriageService {
             }
         }
         Map<String, Object> resp = ml.triageTrain(Map.of("incidents", items));
-        return resp == null ? Map.of("trained_on", 0) : resp;
+        // Fallback keeps the same shape the UI expects even if the ML sidecar is unreachable.
+        return resp == null ? Map.of("trained_on", 0, "q_states", 0) : resp;
     }
 
     private List<Incident> fetch(AuthPrincipal principal) {
