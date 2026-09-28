@@ -104,6 +104,22 @@ public class IncidentService {
         return IncidentView.of(incident);
     }
 
+    /** Fetch an org-scoped incident's logs+context for an ML advanced call. */
+    @Transactional(readOnly = true)
+    public java.util.Map<String, Object> mlContext(AuthPrincipal principal, UUID id) {
+        Incident i = require(principal, id);
+        java.util.List<String> logs = i.getRawLogs() == null
+                ? java.util.List.of()
+                : java.util.Arrays.asList(i.getRawLogs().split("\n"));
+        return java.util.Map.of(
+                "anomaly", java.util.Map.of(
+                        "severity", i.getSeverity() == null ? "medium" : i.getSeverity(),
+                        "description", i.getAnomalyDescription() == null ? "" : i.getAnomalyDescription()),
+                "root_cause", java.util.Map.of("root_cause", i.getRootCause() == null ? "" : i.getRootCause()),
+                "logs", logs
+        );
+    }
+
     /** Resolve an incident the caller is allowed to see, or 404. */
     private Incident require(AuthPrincipal principal, UUID id) {
         Incident incident = principal.isSuperAdmin()

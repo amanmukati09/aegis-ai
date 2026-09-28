@@ -10,6 +10,8 @@ const NAV = [
   { href: "/dashboard/diagnosis", label: "AI Diagnosis" },
   { href: "/dashboard/incidents", label: "Incidents" },
   { href: "/dashboard/copilot", label: "AI Copilot" },
+  { href: "/dashboard/analytics", label: "Smart Analytics" },
+  { href: "/dashboard/dependency", label: "Dependency Map" },
   { href: "/dashboard/streams", label: "Streams" },
   { href: "/dashboard/notifications", label: "Notifications" },
   { href: "/dashboard/workspaces", label: "Workspaces" },

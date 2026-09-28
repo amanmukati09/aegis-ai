@@ -68,6 +68,22 @@ public class MlClient {
         return post("/v1/remediation/suggest", req, RemediationResponse.class);
     }
 
+    /** Advanced endpoints return free-form JSON; the gateway passes them through. */
+    @SuppressWarnings("unchecked")
+    public java.util.Map<String, Object> rcaTree(Object req) {
+        return post("/v1/rca-tree", req, java.util.Map.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    public java.util.Map<String, Object> codeFix(Object req) {
+        return post("/v1/code-fix", req, java.util.Map.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    public java.util.Map<String, Object> nlToSql(Object req) {
+        return post("/v1/nl-to-sql", req, java.util.Map.class);
+    }
+
     private <T> T post(String path, Object body, Class<T> type) {
         try {
             return webClient.post()

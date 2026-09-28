@@ -85,3 +85,26 @@ export const adminApi = {
   auditLogs: (t: string) => apiGet<AuditEntry[]>("/admin/audit-logs", t),
   metrics: (t: string) => apiGet<Record<string, number>>("/admin/metrics", t),
 };
+
+// ---- Analytics (NL->SQL + charts) ----
+export type AskResult = {
+  sql: string;
+  explanation: string;
+  chartType: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+};
+export type TimeseriesPoint = { day: string; total: number };
+export const analyticsApi = {
+  presets: (t: string) => apiGet<string[]>("/analytics/presets", t),
+  ask: (t: string, question: string) => apiPost<AskResult>("/analytics/ask", { question }, t),
+  timeseries: (t: string) => apiGet<TimeseriesPoint[]>("/analytics/timeseries", t),
+};
+
+// ---- Dependency graph ----
+export type GraphNode = { id: string; label: string; weight: number };
+export type GraphEdge = { source: string; target: string; weight: number };
+export type DependencyGraph = { nodes: GraphNode[]; edges: GraphEdge[]; hasData: boolean };
+export const dependencyApi = {
+  graph: (t: string) => apiGet<DependencyGraph>("/dependency/graph", t),
+};

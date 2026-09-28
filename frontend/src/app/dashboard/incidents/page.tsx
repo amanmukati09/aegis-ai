@@ -6,11 +6,14 @@ import {
   createIncident,
   deleteIncident,
   downloadIncidentsCsv,
+  incidentCodeFix,
+  incidentRcaTree,
   listIncidents,
   resolveIncident,
   type Incident,
 } from "@/lib/incidents-api";
 import { Button, Card, ErrorText, Field, Input, SeverityBadge, StatusBadge } from "@/components/ui";
+import { Markdown } from "@/components/Markdown";
 
 const SEVERITIES = ["low", "medium", "high", "critical"];
 
@@ -181,6 +184,25 @@ function DetailDrawer({
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState<string | null>(null);
+  const [rca, setRca] = useState<Record<string, unknown> | null>(null);
+  const [codeFix, setCodeFix] = useState<Record<string, unknown> | null>(null);
+
+  async function runRca() {
+    if (!token) return;
+    setAiBusy("rca");
+    try { setRca(await incidentRcaTree(token, incident.id)); }
+    catch (e) { setError(e instanceof Error ? e.message : "RCA failed"); }
+    finally { setAiBusy(null); }
+  }
+
+  async function runCodeFix() {
+    if (!token) return;
+    setAiBusy("fix");
+    try { setCodeFix(await incidentCodeFix(token, incident.id)); }
+    catch (e) { setError(e instanceof Error ? e.message : "Code fix failed"); }
+    finally { setAiBusy(null); }
+  }
 
   async function onResolve() {
     if (!token) return;
@@ -231,6 +253,38 @@ function DetailDrawer({
           <Detail label="Resolution notes" value={incident.resolutionNotes} />
         </dl>
 
+        {/* AI actions */}
+        <div className="mt-5 flex gap-2">
+          <button onClick={runRca} disabled={aiBusy !== null}
+            className="flex-1 rounded-xl border border-black/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-muted disabled:opacity-50">
+            {aiBusy === "rca" ? "Analyzing…" : "RCA tree"}
+          </button>
+          <button onClick={runCodeFix} disabled={aiBusy !== null}
+            className="flex-1 rounded-xl border border-black/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-muted disabled:opacity-50">
+            {aiBusy === "fix" ? "Generating…" : "Suggest code fix"}
+          </button>
+        </div>
+
+        {rca && (
+          <Card className="mt-3">
+            <p className="text-xs uppercase tracking-wide text-ink-soft">Root cause analysis</p>
+            <p className="mt-1 text-sm font-medium">{String(rca.incident_summary ?? "")}</p>
+            <RcaTree node={rca.tree as TreeNode | undefined} />
+          </Card>
+        )}
+        {codeFix && (
+          <Card className="mt-3">
+            <p className="text-xs uppercase tracking-wide text-ink-soft">Suggested fix</p>
+            <p className="mt-1 text-sm">{String(codeFix.summary ?? "")}</p>
+            {Array.isArray(codeFix.fixes) && (codeFix.fixes as Fix[]).map((f, i) => (
+              <div key={i} className="mt-2">
+                <p className="text-sm font-medium">{f.title} <span className="text-xs text-ink-soft">({f.risk} risk)</span></p>
+                {f.code && <Markdown content={"```\n" + f.code + "\n```"} />}
+              </div>
+            ))}
+          </Card>
+        )}
+
         {incident.status !== "resolved" && (
           <div className="mt-6 space-y-2">
             <Field label="Resolution notes (optional)">
@@ -261,5 +315,20 @@ function Detail({ label, value }: { label: string; value?: string | null }) {
       <dt className="text-xs uppercase tracking-wide text-ink-soft">{label}</dt>
       <dd className="mt-0.5 text-ink">{value ?? "—"}</dd>
     </div>
+  );
+}
+
+type TreeNode = { label: string; children?: TreeNode[] };
+type Fix = { title: string; code: string; risk: string; rollback?: string };
+
+function RcaTree({ node, depth = 0 }: { node?: TreeNode; depth?: number }) {
+  if (!node) return null;
+  return (
+    <ul className={depth === 0 ? "mt-2" : "ml-4 border-l border-black/10 pl-3"}>
+      <li className="py-0.5 text-sm">
+        <span className={depth === 0 ? "font-medium" : ""}>{node.label}</span>
+        {node.children?.map((c, i) => <RcaTree key={i} node={c} depth={depth + 1} />)}
+      </li>
+    </ul>
   );
 }

@@ -4,18 +4,26 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { getDashboardSummary, type DashboardSummary } from "@/lib/incidents-api";
+import { analyticsApi, type TimeseriesPoint } from "@/lib/platform-api";
 import { Card, ErrorText, SeverityBadge, StatusBadge } from "@/components/ui";
+import { DonutBreakdown, LineTrend } from "@/components/Charts";
 
 export default function DashboardHome() {
   const { user, token } = useAuth();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [series, setSeries] = useState<TimeseriesPoint[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      setSummary(await getDashboardSummary(token));
+      const [s, ts] = await Promise.all([
+        getDashboardSummary(token),
+        analyticsApi.timeseries(token).catch(() => []),
+      ]);
+      setSummary(s);
+      setSeries(ts);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load dashboard");
@@ -47,10 +55,27 @@ export default function DashboardHome() {
         <Stat label="MTTR (hrs)" value={loading ? "…" : mttr == null ? "—" : mttr.toFixed(1)} />
       </div>
 
+      <Card className="mt-6">
+        <h2 className="mb-3 text-sm font-medium text-ink">Incidents over the last 14 days</h2>
+        {series.length > 0 ? (
+          <LineTrend data={series as unknown as Record<string, unknown>[]} xKey="day" yKey="total" />
+        ) : (
+          <p className="py-8 text-center text-sm text-ink-soft">{loading ? "Loading…" : "No data yet."}</p>
+        )}
+      </Card>
+
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <h2 className="mb-3 text-sm font-medium text-ink">By severity</h2>
-          <Breakdown data={summary?.bySeverity} render={(k) => <SeverityBadge severity={k} />} />
+          {summary && Object.keys(summary.bySeverity).length > 0 ? (
+            <DonutBreakdown
+              data={Object.entries(summary.bySeverity).map(([name, value]) => ({ name, value }))}
+              nameKey="name"
+              valueKey="value"
+            />
+          ) : (
+            <Breakdown data={summary?.bySeverity} render={(k) => <SeverityBadge severity={k} />} />
+          )}
         </Card>
         <Card>
           <h2 className="mb-3 text-sm font-medium text-ink">By status</h2>

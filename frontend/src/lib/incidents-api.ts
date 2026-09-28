@@ -62,6 +62,15 @@ export function claimIncident(token: string, id: string) {
   return apiPost<Incident>(`/incidents/${id}/claim`, {}, token);
 }
 
+// Advanced ML on an incident (free-form JSON results).
+export function incidentRcaTree(token: string, id: string) {
+  return apiPost<Record<string, unknown>>(`/incidents/${id}/rca-tree`, {}, token);
+}
+
+export function incidentCodeFix(token: string, id: string) {
+  return apiPost<Record<string, unknown>>(`/incidents/${id}/code-fix`, {}, token);
+}
+
 export function getDashboardSummary(token: string) {
   return apiGet<DashboardSummary>("/dashboard/summary", token);
 }

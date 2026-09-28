@@ -31,9 +31,11 @@ import java.util.UUID;
 public class IncidentController {
 
     private final IncidentService service;
+    private final ai.aegis.gateway.ml.MlClient ml;
 
-    public IncidentController(IncidentService service) {
+    public IncidentController(IncidentService service, ai.aegis.gateway.ml.MlClient ml) {
         this.service = service;
+        this.ml = ml;
     }
 
     @GetMapping
@@ -66,6 +68,18 @@ public class IncidentController {
     public IncidentView claim(@AuthenticationPrincipal AuthPrincipal principal,
                               @PathVariable UUID id, HttpServletRequest http) {
         return service.claim(principal, id, clientIp(http));
+    }
+
+    @PostMapping("/{id}/rca-tree")
+    public java.util.Map<String, Object> rcaTree(@AuthenticationPrincipal AuthPrincipal principal,
+                                                 @PathVariable UUID id) {
+        return ml.rcaTree(service.mlContext(principal, id));
+    }
+
+    @PostMapping("/{id}/code-fix")
+    public java.util.Map<String, Object> codeFix(@AuthenticationPrincipal AuthPrincipal principal,
+                                                 @PathVariable UUID id) {
+        return ml.codeFix(service.mlContext(principal, id));
     }
 
     @DeleteMapping("/{id}")
