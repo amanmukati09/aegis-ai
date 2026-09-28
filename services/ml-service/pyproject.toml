@@ -1,0 +1,9 @@
+[project]
+name = "aegisai-ml-service"
+version = "0.1.0"
+description = "AegisAI ML sidecar (FastAPI) — inference/generation only"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

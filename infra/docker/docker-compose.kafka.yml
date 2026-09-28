@@ -1,0 +1,31 @@
+# OPTIONAL overlay: Kafka (+ Zookeeper). Off by default.
+# Enable: docker compose -f docker-compose.yml -f docker-compose.kafka.yml up -d
+# Then set KAFKA_BOOTSTRAP=kafka:9092 and SPRING_PROFILES_ACTIVE=dev,kafka in .env.
+# NOTE: heavy — only run on a host with adequate RAM (not the 3.8GB box).
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: aegisai-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    mem_limit: 512m
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: aegisai-kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "29092:29092"
+    mem_limit: 1g
+    restart: unless-stopped

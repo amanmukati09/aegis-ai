@@ -1,0 +1,132 @@
+# AegisAI core stack — fits a small host (~3.8GB). No Ollama here (too heavy);
+# default AI provider is Groq (hosted, free). Optional overlays add Kafka/Neo4j/metrics.
+#
+# Usage (from this directory):
+#   docker compose --env-file ../../.env up -d --build
+#
+# Memory limits are conservative so the whole stack coexists on a 3.8GB box.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aegisai-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aegisai}
+      POSTGRES_USER: ${POSTGRES_USER:-aegisai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aegisai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: aegisai-redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-redis}"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 128m
+    restart: unless-stopped
+
+  ml-service:
+    build:
+      context: ../../services/ml-service
+      dockerfile: Dockerfile
+    container_name: aegisai-ml
+    environment:
+      DEFAULT_AI_PROVIDER: ${DEFAULT_AI_PROVIDER:-groq}
+      DEFAULT_AI_MODEL: ${DEFAULT_AI_MODEL:-llama-3.1-8b-instant}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-}
+      VECTOR_STORE: ${VECTOR_STORE:-pgvector}
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    mem_limit: 384m
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ../../services/gateway
+      dockerfile: Dockerfile
+    container_name: aegisai-gateway
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      POSTGRES_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-aegisai}
+      POSTGRES_USER: ${POSTGRES_USER:-aegisai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
+      ML_SERVICE_URL: http://ml-service:8001
+      APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-http://localhost:3000}
+      APP_FRONTEND_URL: ${APP_FRONTEND_URL:-http://localhost:3000}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-min-32-bytes-long!!}
+      JWT_EXPIRY_DAYS: ${JWT_EXPIRY_DAYS:-7}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@aegis.local}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Platform Admin}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/actuator/health | grep -q UP || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    mem_limit: 768m
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: aegisai-frontend
+    environment:
+      # Next rewrites /api/gateway/* to the gateway by its container name.
+      GATEWAY_INTERNAL_URL: http://gateway:8080
+      # Optional: set to the gateway's public URL to enable OAuth buttons.
+      NEXT_PUBLIC_GATEWAY_PUBLIC_URL: ${NEXT_PUBLIC_GATEWAY_PUBLIC_URL:-}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway
+      - ml-service
+    mem_limit: 256m
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,20 @@
+# OPTIONAL overlay: Neo4j (causal/dependency graphs). Off by default.
+# Enable: docker compose -f docker-compose.yml -f docker-compose.graph.yml up -d
+# Then set NEO4J_URI=bolt://neo4j:7687 and SPRING_PROFILES_ACTIVE=dev,neo4j in .env.
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: aegisai-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-neo4jpassword}
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    mem_limit: 768m
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:

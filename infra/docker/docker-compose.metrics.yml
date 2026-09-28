@@ -1,0 +1,42 @@
+# OPTIONAL overlay: TimescaleDB (metrics) + Prometheus + Grafana. Off by default.
+# Enable: docker compose -f docker-compose.yml -f docker-compose.metrics.yml up -d
+# Then set TIMESCALE_URL and SPRING_PROFILES_ACTIVE=dev,timescale,metrics in .env.
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: aegisai-timescale
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aegisai}_metrics
+      POSTGRES_USER: ${POSTGRES_USER:-aegisai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5433:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    mem_limit: 512m
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: aegisai-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    mem_limit: 256m
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: aegisai-grafana
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    mem_limit: 256m
+    restart: unless-stopped
+
+volumes:
+  timescale_data:
+  grafana_data:

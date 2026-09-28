@@ -1,0 +1,265 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@/lib/auth-context";
+import {
+  createIncident,
+  deleteIncident,
+  downloadIncidentsCsv,
+  listIncidents,
+  resolveIncident,
+  type Incident,
+} from "@/lib/incidents-api";
+import { Button, Card, ErrorText, Field, Input, SeverityBadge, StatusBadge } from "@/components/ui";
+
+const SEVERITIES = ["low", "medium", "high", "critical"];
+
+export default function IncidentsPage() {
+  const { token, isAdmin } = useAuth();
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [selected, setSelected] = useState<Incident | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const page = await listIncidents(token);
+      setIncidents(page.items);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load incidents");
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Incidents</h1>
+          <p className="mt-1 text-sm text-ink-soft">Track and resolve incidents in your organization.</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => token && downloadIncidentsCsv(token).catch((e) => setError(e.message))}
+            className="h-10 rounded-xl border border-black/10 px-4 text-sm font-medium text-ink transition-colors hover:bg-surface-muted"
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={() => setShowCreate((v) => !v)}
+            className="h-10 rounded-xl bg-accent px-4 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+          >
+            {showCreate ? "Close" : "New incident"}
+          </button>
+        </div>
+      </div>
+
+      {showCreate && <CreateForm onCreated={() => { setShowCreate(false); load(); }} />}
+      <ErrorText message={error} />
+
+      <Card className="mt-4 p-0">
+        {loading ? (
+          <p className="p-6 text-sm text-ink-soft">Loading…</p>
+        ) : incidents.length === 0 ? (
+          <p className="p-6 text-sm text-ink-soft">No incidents yet. Create your first one.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-black/5 text-left text-xs uppercase tracking-wide text-ink-soft">
+                <th className="px-5 py-3 font-medium">Title</th>
+                <th className="px-5 py-3 font-medium">Severity</th>
+                <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Detected</th>
+              </tr>
+            </thead>
+            <tbody>
+              {incidents.map((i) => (
+                <tr
+                  key={i.id}
+                  onClick={() => setSelected(i)}
+                  className="cursor-pointer border-b border-black/5 transition-colors last:border-0 hover:bg-surface-muted"
+                >
+                  <td className="px-5 py-3 font-medium">{i.title}</td>
+                  <td className="px-5 py-3"><SeverityBadge severity={i.severity} /></td>
+                  <td className="px-5 py-3"><StatusBadge status={i.status} /></td>
+                  <td className="px-5 py-3 text-ink-soft">
+                    {i.detectedAt ? new Date(i.detectedAt).toLocaleString() : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+
+      {selected && (
+        <DetailDrawer
+          incident={selected}
+          canDelete={isAdmin}
+          onClose={() => setSelected(null)}
+          onChanged={() => { setSelected(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CreateForm({ onCreated }: { onCreated: () => void }) {
+  const { token } = useAuth();
+  const [form, setForm] = useState({ title: "", severity: "medium", anomalyDescription: "", rawLogs: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await createIncident(token, form);
+      onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create incident");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Card className="mt-4">
+      <form onSubmit={onSubmit} className="space-y-4">
+        <Field label="Title">
+          <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+        </Field>
+        <Field label="Severity">
+          <select
+            value={form.severity}
+            onChange={(e) => setForm({ ...form, severity: e.target.value })}
+            className="h-11 w-full rounded-xl border border-black/10 bg-surface px-4 text-sm capitalize outline-none focus:ring-2 focus:ring-accent/40"
+          >
+            {SEVERITIES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Description">
+          <Input
+            value={form.anomalyDescription}
+            onChange={(e) => setForm({ ...form, anomalyDescription: e.target.value })}
+          />
+        </Field>
+        <ErrorText message={error} />
+        <div className="w-40">
+          <Button type="submit" disabled={submitting}>{submitting ? "Creating…" : "Create"}</Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
+function DetailDrawer({
+  incident,
+  canDelete,
+  onClose,
+  onChanged,
+}: {
+  incident: Incident;
+  canDelete: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { token } = useAuth();
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onResolve() {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await resolveIncident(token, incident.id, notes || undefined);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to resolve");
+      setBusy(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteIncident(token, incident.id);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={onClose}>
+      <div
+        className="h-full w-full max-w-md overflow-y-auto bg-surface p-6 shadow-card"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-start justify-between">
+          <h2 className="text-lg font-semibold">{incident.title}</h2>
+          <button onClick={onClose} className="text-ink-soft hover:text-ink" aria-label="Close">✕</button>
+        </div>
+        <div className="flex gap-2">
+          <SeverityBadge severity={incident.severity} />
+          <StatusBadge status={incident.status} />
+        </div>
+
+        <dl className="mt-5 space-y-3 text-sm">
+          <Detail label="Description" value={incident.anomalyDescription} />
+          <Detail label="Root cause" value={incident.rootCause} />
+          <Detail label="Detected" value={incident.detectedAt ? new Date(incident.detectedAt).toLocaleString() : null} />
+          <Detail label="Resolved" value={incident.resolvedAt ? new Date(incident.resolvedAt).toLocaleString() : null} />
+          <Detail label="Resolution notes" value={incident.resolutionNotes} />
+        </dl>
+
+        {incident.status !== "resolved" && (
+          <div className="mt-6 space-y-2">
+            <Field label="Resolution notes (optional)">
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </Field>
+            <Button onClick={onResolve} disabled={busy}>{busy ? "Working…" : "Mark resolved"}</Button>
+          </div>
+        )}
+
+        {canDelete && (
+          <button
+            onClick={onDelete}
+            disabled={busy}
+            className="mt-4 h-11 w-full rounded-xl border border-red-200 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+          >
+            Delete incident
+          </button>
+        )}
+        <ErrorText message={error} />
+      </div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div>
+      <dt className="text-xs uppercase tracking-wide text-ink-soft">{label}</dt>
+      <dd className="mt-0.5 text-ink">{value ?? "—"}</dd>
+    </div>
+  );
+}

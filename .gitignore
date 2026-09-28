@@ -1,0 +1,45 @@
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# Java / Maven
+target/
+*.class
+.mvn/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Data / models / artifacts
+data/
+*.pkl
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Docker
+*.log

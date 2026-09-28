@@ -1,0 +1,7 @@
+spring:
+  jpa:
+    show-sql: false
+logging:
+  level:
+    ai.aegis: DEBUG
+    org.springframework.web: INFO
