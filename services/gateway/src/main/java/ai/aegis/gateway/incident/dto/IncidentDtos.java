@@ -16,11 +16,16 @@ public final class IncidentDtos {
             @NotBlank String title,
             String severity,
             String rawLogs,
-            String anomalyDescription
+            String anomalyDescription,
+            String workspaceId
     ) {
     }
 
     public record ResolveRequest(String resolutionNotes) {
+    }
+
+    /** null/blank workspaceId clears the tag, moving the incident back to the shared pool. */
+    public record SetWorkspaceRequest(String workspaceId) {
     }
 
     public record IncidentView(
@@ -28,6 +33,7 @@ public final class IncidentDtos {
             String orgId,
             String userId,
             String assignedTo,
+            String workspaceId,
             String title,
             String status,
             String severity,
@@ -45,6 +51,7 @@ public final class IncidentDtos {
                     i.getOrgId().toString(),
                     i.getUserId() == null ? null : i.getUserId().toString(),
                     i.getAssignedTo() == null ? null : i.getAssignedTo().toString(),
+                    i.getWorkspaceId() == null ? null : i.getWorkspaceId().toString(),
                     i.getTitle(),
                     i.getStatus(),
                     i.getSeverity(),

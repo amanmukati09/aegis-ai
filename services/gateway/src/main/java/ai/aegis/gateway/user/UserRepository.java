@@ -14,5 +14,10 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     java.util.List<User> findByOrgId(UUID orgId);
 
+    Optional<User> findByIdAndOrgId(UUID id, UUID orgId);
+
     long countByOrgId(UUID orgId);
+
+    /** Active admins (org_admin or super_admin) in an org — used to guard "last admin standing". */
+    long countByOrgIdAndRoleInAndActiveTrue(UUID orgId, java.util.List<String> roles);
 }

@@ -27,6 +27,14 @@ import java.util.UUID;
 @Service
 public class ChatService {
 
+    /**
+     * Max prior turns (user+assistant messages) sent to the LLM as context. Unbounded
+     * full-history replay would grow token cost linearly with conversation length; this
+     * caps it to a recent window while a one-line marker tells the model older context
+     * exists but was trimmed, so it doesn't assume the conversation just started.
+     */
+    private static final int HISTORY_WINDOW = 24;
+
     private final ChatSessionRepository sessions;
     private final ChatMessageRepository messages;
     private final MlClient ml;
@@ -95,10 +103,7 @@ public class ChatService {
         String masked = guardrails.maskPii(message);
         messages.save(new ChatMessage(UUID.randomUUID(), session.getId(), "user", masked));
 
-        List<Map<String, String>> history = new ArrayList<>();
-        for (ChatMessage m : messages.findBySessionIdOrderByCreatedAtAsc(session.getId())) {
-            history.add(Map.of("role", m.getRole(), "content", m.getContent()));
-        }
+        List<Map<String, String>> history = recentHistory(session.getId());
 
         // Guardrail 3 (model): pass the security system prompt (defense in depth).
         ChatResponse resp = ml.chat(new ChatRequest(masked, history,
@@ -138,10 +143,7 @@ public class ChatService {
         String masked = guardrails.maskPii(message);
         messages.save(new ChatMessage(UUID.randomUUID(), session.getId(), "user", masked));
 
-        List<Map<String, String>> history = new ArrayList<>();
-        for (ChatMessage m : messages.findBySessionIdOrderByCreatedAtAsc(session.getId())) {
-            history.add(Map.of("role", m.getRole(), "content", m.getContent()));
-        }
+        List<Map<String, String>> history = recentHistory(session.getId());
         ChatRequest req = new ChatRequest(masked, history,
                 guardrails.securitySystemPrompt(), provider, model);
         return new StreamPrep(session.getId(), req);
@@ -187,6 +189,30 @@ public class ChatService {
     }
 
     public record SearchHit(String sessionId, String sessionTitle, String role, String snippet) {
+    }
+
+    /**
+     * Bounded LLM context: the most recent HISTORY_WINDOW messages, chronological order.
+     * Replaces unbounded full-session replay so token cost (and latency/spend) stays flat
+     * as a conversation grows instead of climbing linearly with every turn.
+     */
+    private List<Map<String, String>> recentHistory(UUID sessionId) {
+        long total = messages.countBySessionId(sessionId);
+        List<ChatMessage> windowDesc = messages.findBySessionIdOrderByCreatedAtDesc(
+                sessionId, org.springframework.data.domain.PageRequest.of(0, HISTORY_WINDOW));
+
+        List<Map<String, String>> history = new ArrayList<>();
+        if (total > windowDesc.size()) {
+            history.add(Map.of("role", "system",
+                    "content", "[" + (total - windowDesc.size())
+                            + " earlier messages in this conversation were trimmed for context length.]"));
+        }
+        // windowDesc is newest-first; reverse for chronological order.
+        for (int i = windowDesc.size() - 1; i >= 0; i--) {
+            ChatMessage m = windowDesc.get(i);
+            history.add(Map.of("role", m.getRole(), "content", m.getContent()));
+        }
+        return history;
     }
 
     private ChatSession resolveOrCreate(AuthPrincipal principal, String sessionIdStr, String firstMessage) {

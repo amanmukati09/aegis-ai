@@ -20,17 +20,35 @@ import {
 const PALETTE = ["#7c7aff", "#389eff", "#34c759", "#ff9f0a", "#ff453a", "#bf5af2"];
 
 const AXIS = { fontSize: 11, fill: "rgb(148 150 160)" };
+
+// Theme-aware tooltip: reads the same CSS vars as the rest of the UI (--surface/--ink/
+// --border) via rgb(var(...)) so it looks native in both light and dark mode instead of
+// being hardcoded to one theme.
 const tooltipStyle = {
   contentStyle: {
-    background: "rgba(28,30,40,0.95)",
-    border: "1px solid rgba(255,255,255,0.1)",
+    background: "rgb(var(--surface) / 0.97)",
+    border: "1px solid rgb(var(--border) / 0.12)",
     borderRadius: 12,
-    color: "#ededf0",
+    color: "rgb(var(--ink))",
     fontSize: 12,
+    boxShadow: "0 8px 30px rgb(0 0 0 / 0.12)",
   },
+  labelStyle: { color: "rgb(var(--ink-soft))" },
 };
 
+function ChartEmpty({ height, label = "No data yet" }: { height: number; label?: string }) {
+  return (
+    <div
+      style={{ height }}
+      className="flex items-center justify-center rounded-xl border border-dashed border-line/15 text-sm text-ink-soft"
+    >
+      {label}
+    </div>
+  );
+}
+
 export function AreaTrend({ data, xKey, yKey }: { data: Record<string, unknown>[]; xKey: string; yKey: string }) {
+  if (!data || data.length === 0) return <ChartEmpty height={260} />;
   return (
     <ResponsiveContainer width="100%" height={260}>
       <AreaChart data={data} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
@@ -51,6 +69,7 @@ export function AreaTrend({ data, xKey, yKey }: { data: Record<string, unknown>[
 }
 
 export function LineTrend({ data, xKey, yKey }: { data: Record<string, unknown>[]; xKey: string; yKey: string }) {
+  if (!data || data.length === 0) return <ChartEmpty height={240} />;
   return (
     <ResponsiveContainer width="100%" height={240}>
       <LineChart data={data} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
@@ -65,6 +84,7 @@ export function LineTrend({ data, xKey, yKey }: { data: Record<string, unknown>[
 }
 
 export function BarBreakdown({ data, xKey, yKey }: { data: Record<string, unknown>[]; xKey: string; yKey: string }) {
+  if (!data || data.length === 0) return <ChartEmpty height={240} />;
   return (
     <ResponsiveContainer width="100%" height={240}>
       <BarChart data={data} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
@@ -83,6 +103,7 @@ export function BarBreakdown({ data, xKey, yKey }: { data: Record<string, unknow
 }
 
 export function DonutBreakdown({ data, nameKey, valueKey }: { data: Record<string, unknown>[]; nameKey: string; valueKey: string }) {
+  if (!data || data.length === 0) return <ChartEmpty height={240} />;
   return (
     <ResponsiveContainer width="100%" height={240}>
       <PieChart>

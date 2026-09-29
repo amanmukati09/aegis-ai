@@ -7,6 +7,8 @@ import ai.aegis.gateway.incident.dto.IncidentDtos.IncidentView;
 import ai.aegis.gateway.incident.dto.IncidentDtos.PageResponse;
 import ai.aegis.gateway.incident.dto.IncidentDtos.ResolveRequest;
 import ai.aegis.gateway.security.AuthPrincipal;
+import ai.aegis.gateway.workspace.WorkspaceMemberRepository;
+import ai.aegis.gateway.workspace.WorkspaceRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -29,16 +31,59 @@ public class IncidentService {
     private final ai.aegis.gateway.notification.NotificationService notifications;
     private final ai.aegis.gateway.alert.AlertService alerts;
     private final ai.aegis.gateway.ml.MlClient ml;
+    private final WorkspaceRepository workspaces;
+    private final WorkspaceMemberRepository workspaceMembers;
 
     public IncidentService(IncidentRepository repository, AuditService auditService,
                            ai.aegis.gateway.notification.NotificationService notifications,
                            ai.aegis.gateway.alert.AlertService alerts,
-                           ai.aegis.gateway.ml.MlClient ml) {
+                           ai.aegis.gateway.ml.MlClient ml,
+                           WorkspaceRepository workspaces, WorkspaceMemberRepository workspaceMembers) {
+        this.workspaces = workspaces;
+        this.workspaceMembers = workspaceMembers;
         this.repository = repository;
         this.auditService = auditService;
         this.notifications = notifications;
         this.alerts = alerts;
         this.ml = ml;
+    }
+
+    // A UUID that can never match a real workspace row — used in place of an empty list
+    // for JPQL/native "IN (:ids)" clauses, since Hibernate/Postgres reject an empty IN
+    // list outright (native queries fail with a SQL syntax error). A member who belongs
+    // to zero workspaces still needs to see the unscoped/shared incident pool.
+    private static final UUID NO_WORKSPACES_SENTINEL = new UUID(0L, 0L);
+
+    /**
+     * Workspace IDs the caller can use to see workspace-scoped incidents. Admins bypass
+     * workspace visibility entirely (represented by an empty list here — callers must
+     * check {@link AuthPrincipal#bypassesWorkspaceVisibility()} first and use the
+     * unrestricted repository methods instead of calling this for admins).
+     */
+    private java.util.List<UUID> visibleWorkspaceIds(AuthPrincipal principal) {
+        java.util.List<UUID> ids = workspaceMembers.findWorkspaceIdsByUserId(principal.userId());
+        return ids.isEmpty() ? java.util.List.of(NO_WORKSPACES_SENTINEL) : ids;
+    }
+
+    /**
+     * Whether the caller is allowed to see this specific incident: admins see everything
+     * in scope; everyone else sees unscoped incidents (the shared/general pool) plus
+     * incidents scoped to a workspace they belong to. Public so other domains that
+     * surface incident content (e.g. KB article generation) can apply the same rule
+     * instead of re-deriving it.
+     */
+    public boolean canSee(AuthPrincipal principal, Incident incident) {
+        if (principal.isSuperAdmin()) {
+            return true;
+        }
+        if (!incident.getOrgId().equals(principal.orgId())) {
+            return false;
+        }
+        if (principal.isOrgAdmin()) {
+            return true;
+        }
+        UUID workspaceId = incident.getWorkspaceId();
+        return workspaceId == null || workspaceMembers.existsByWorkspaceIdAndUserId(workspaceId, principal.userId());
     }
 
     /** Best-effort: embed the incident text and store the vector for similarity search. */
@@ -66,7 +111,14 @@ public class IncidentService {
         }
         String literal = "[" + vec.stream().map(String::valueOf)
                 .collect(java.util.stream.Collectors.joining(",")) + "]";
-        return repository.findSimilar(principal.orgId(), id, literal).stream()
+        // Results must respect the caller's workspace visibility too, not just the source
+        // incident (require() above already gated the source; the candidates need the
+        // same gate so a member can't discover a workspace-scoped incident's title/severity
+        // through the "similar incidents" side-channel).
+        var rows = principal.bypassesWorkspaceVisibility()
+                ? repository.findSimilar(principal.orgId(), id, literal)
+                : repository.findSimilarVisible(principal.orgId(), id, literal, visibleWorkspaceIds(principal));
+        return rows.stream()
                 .map(row -> {
                     // row = [id(text), title, severity, status, score(numeric)]
                     double score = row[4] == null ? 0.0 : ((Number) row[4]).doubleValue();
@@ -104,11 +156,31 @@ public class IncidentService {
 
     @Transactional(readOnly = true)
     public PageResponse list(AuthPrincipal principal, int page, int size) {
+        return list(principal, page, size, null);
+    }
+
+    /**
+     * Same listing, optionally scoped to a workspace. When no workspaceId is given, the
+     * result set itself is workspace-visibility-aware for regular members: they see
+     * unscoped incidents plus incidents in workspaces they belong to, NOT every incident
+     * in the org. Admins (super_admin/org_admin) always see everything, since they
+     * administer the whole org.
+     */
+    @Transactional(readOnly = true)
+    public PageResponse list(AuthPrincipal principal, int page, int size, UUID workspaceId) {
         Pageable pageable = PageRequest.of(page, Math.min(size, 100),
                 Sort.by(Sort.Direction.DESC, "detectedAt"));
-        Page<Incident> result = principal.isSuperAdmin()
-                ? repository.findAll(pageable)
-                : repository.findByOrgId(principal.orgId(), pageable);
+        Page<Incident> result;
+        if (workspaceId != null) {
+            requireWorkspaceAccess(principal, workspaceId);
+            result = repository.findByOrgIdAndWorkspaceId(principal.orgId(), workspaceId, pageable);
+        } else if (principal.isSuperAdmin()) {
+            result = repository.findAll(pageable);
+        } else if (principal.isOrgAdmin()) {
+            result = repository.findByOrgId(principal.orgId(), pageable);
+        } else {
+            result = repository.findVisibleByOrgId(principal.orgId(), visibleWorkspaceIds(principal), pageable);
+        }
         return new PageResponse(
                 result.map(IncidentView::of).getContent(),
                 result.getNumber(), result.getSize(),
@@ -123,9 +195,11 @@ public class IncidentService {
 
     @Transactional
     public IncidentView create(AuthPrincipal principal, CreateRequest req, String ip) {
+        UUID workspaceId = resolveWorkspaceForCreate(principal, req.workspaceId());
         Incident incident = new Incident(
                 UUID.randomUUID(), principal.orgId(), principal.userId(),
                 req.title(), req.severity(), req.rawLogs(), req.anomalyDescription());
+        incident.setWorkspaceId(workspaceId);
         repository.save(incident);
         embedAsync(incident.getId(), req.title() + " " + (req.anomalyDescription() == null ? "" : req.anomalyDescription()));
         auditService.record(principal.orgId(), principal.userId(), principal.email(),
@@ -134,6 +208,155 @@ public class IncidentService {
                 "Incident created", incident.getTitle());
         alerts.dispatchIncident(incident.getTitle(), incident.getSeverity());
         return IncidentView.of(incident);
+    }
+
+    /** Validate a workspaceId on create: must belong to the org, and the caller must be a member. */
+    private UUID resolveWorkspaceForCreate(AuthPrincipal principal, String workspaceIdStr) {
+        if (workspaceIdStr == null || workspaceIdStr.isBlank()) {
+            return null;
+        }
+        UUID workspaceId = parseWorkspaceId(workspaceIdStr);
+        requireWorkspaceAccess(principal, workspaceId);
+        return workspaceId;
+    }
+
+    private UUID parseWorkspaceId(String workspaceIdStr) {
+        try {
+            return UUID.fromString(workspaceIdStr);
+        } catch (IllegalArgumentException e) {
+            throw ApiException.badRequest("Invalid workspaceId");
+        }
+    }
+
+    /**
+     * Retag an existing incident's workspace (or clear it back to the shared/general
+     * pool with a null/blank workspaceId). Admin-only: workspace membership controls who
+     * can SEE an incident, not who can move it across that privacy boundary — moving an
+     * incident into or out of a workspace is an org-management action, same tier as
+     * managing workspace membership itself.
+     */
+    @Transactional
+    public IncidentView setWorkspace(AuthPrincipal principal, UUID id, String workspaceIdStr, String ip) {
+        if (!principal.bypassesWorkspaceVisibility()) {
+            throw ApiException.forbidden("Only an org admin can move an incident between workspaces");
+        }
+        Incident incident = require(principal, id);
+        UUID newWorkspaceId = (workspaceIdStr == null || workspaceIdStr.isBlank())
+                ? null : parseWorkspaceId(workspaceIdStr);
+        if (newWorkspaceId != null) {
+            // Admins bypass member-of checks by design, but the workspace must still
+            // belong to the same org — this 404s otherwise, same as create-time validation.
+            workspaces.findByIdAndOrgId(newWorkspaceId, principal.orgId())
+                    .orElseThrow(() -> ApiException.notFound("Workspace not found"));
+        }
+        incident.setWorkspaceId(newWorkspaceId);
+        repository.save(incident);
+        auditService.record(principal.orgId(), principal.userId(), principal.email(),
+                "incident_workspace_changed", "incident", id.toString(), ip);
+        return IncidentView.of(incident);
+    }
+
+    /** A workspace filter/tag is only usable by org members who actually belong to it. */
+    private void requireWorkspaceAccess(AuthPrincipal principal, UUID workspaceId) {
+        workspaces.findByIdAndOrgId(workspaceId, principal.orgId())
+                .orElseThrow(() -> ApiException.notFound("Workspace not found"));
+        if (!principal.isSuperAdmin() && !workspaceMembers.existsByWorkspaceIdAndUserId(workspaceId, principal.userId())) {
+            throw ApiException.forbidden("You are not a member of this workspace");
+        }
+    }
+
+    // Root-causing every incident in a large bulk upload would fan out one ML round-trip
+    // per detected incident; on a busy box that's the fastest way to starve the Hikari
+    // pool and the ML sidecar. Diagnose only the most severe incidents in a batch — the
+    // rest still exist as incidents (segmenter-derived title/severity/evidence), just
+    // without an AI root cause/remediation until someone opens them and clicks Diagnose.
+    private static final int MAX_AUTO_DIAGNOSE_PER_BATCH = 10;
+    private static final java.util.Map<String, Integer> SEVERITY_ORDER =
+            java.util.Map.of("critical", 4, "high", 3, "medium", 2, "low", 1);
+
+    /**
+     * Create every incident detected by bulk log segmentation, in one org-scoped batch.
+     * Unlike the previous app (which capped persistence at 3 while reporting more), this
+     * persists ALL detected incidents. The most severe ones (up to
+     * MAX_AUTO_DIAGNOSE_PER_BATCH) are auto-diagnosed the same way a single pasted-log
+     * diagnosis works — root cause + remediation, not just "an anomaly was found" — so a
+     * bulk upload isn't a second-class citizen next to manual diagnosis. Notifications/
+     * alerts are collapsed into a single batch summary to avoid spamming one-per-incident.
+     */
+    @Transactional
+    public java.util.List<IncidentView> createFromBulk(
+            AuthPrincipal principal, java.util.List<java.util.Map<String, Object>> detected,
+            String sourceLabel, String ip) {
+        java.util.List<Incident> createdIncidents = new java.util.ArrayList<>();
+        for (java.util.Map<String, Object> d : detected) {
+            String title = str(d.get("title"), "Detected incident");
+            String severity = str(d.get("severity"), "medium");
+            String description = str(d.get("description"), "");
+            String evidence = d.get("evidence") instanceof java.util.List<?> ev
+                    ? ev.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining("\n"))
+                    : "";
+            String rawLogs = "Bulk analysis from: " + (sourceLabel == null ? "upload" : sourceLabel)
+                    + (evidence.isBlank() ? "" : "\n\nEvidence:\n" + evidence);
+
+            Incident incident = new Incident(
+                    UUID.randomUUID(), principal.orgId(), principal.userId(),
+                    title, severity, rawLogs, description);
+            repository.save(incident);
+            embedAsync(incident.getId(), title + " " + description);
+            createdIncidents.add(incident);
+        }
+
+        autoDiagnoseMostSevere(createdIncidents);
+
+        if (!createdIncidents.isEmpty()) {
+            auditService.record(principal.orgId(), principal.userId(), principal.email(),
+                    "incidents_bulk_created", "incident", createdIncidents.size() + " incidents", ip);
+            notifications.create(principal.userId(), "incident",
+                    "Bulk analysis complete",
+                    createdIncidents.size() + " incidents created from " + (sourceLabel == null ? "upload" : sourceLabel));
+        }
+        return createdIncidents.stream().map(IncidentView::of).toList();
+    }
+
+    /** Root-cause + remediate the worst incidents from a bulk batch, best-effort. */
+    private void autoDiagnoseMostSevere(java.util.List<Incident> createdIncidents) {
+        createdIncidents.stream()
+                .sorted(java.util.Comparator.comparingInt(
+                        (Incident i) -> SEVERITY_ORDER.getOrDefault(
+                                i.getSeverity() == null ? "" : i.getSeverity().toLowerCase(), 0))
+                        .reversed())
+                .limit(MAX_AUTO_DIAGNOSE_PER_BATCH)
+                .forEach(this::autoDiagnoseOne);
+    }
+
+    private void autoDiagnoseOne(Incident incident) {
+        try {
+            java.util.List<String> logs = incident.getRawLogs() == null
+                    ? java.util.List.of() : java.util.Arrays.asList(incident.getRawLogs().split("\n"));
+            java.util.Map<String, Object> anomalyMap = java.util.Map.of(
+                    "anomaly_type", incident.getTitle() == null ? "unknown" : incident.getTitle(),
+                    "severity", incident.getSeverity() == null ? "medium" : incident.getSeverity(),
+                    "affected_component", "unknown",
+                    "description", incident.getAnomalyDescription() == null ? "" : incident.getAnomalyDescription());
+
+            var diagnosis = ml.diagnose(new ai.aegis.gateway.ml.MlDtos.DiagnoseRequest(anomalyMap, logs, null, null));
+            java.util.Map<String, Object> rootCauseMap = java.util.Map.of(
+                    "root_cause", diagnosis.root_cause() == null ? "" : diagnosis.root_cause());
+            var remediation = ml.suggestRemediation(
+                    new ai.aegis.gateway.ml.MlDtos.RemediationRequest(anomalyMap, rootCauseMap, null, null));
+
+            incident.setRootCause(diagnosis.root_cause());
+            incident.setRemediationAction(String.join("; ", remediation.immediate_actions()));
+            incident.setRemediationStatus("pending");
+            repository.save(incident);
+        } catch (Exception e) {
+            // Auto-diagnosis is best-effort — a slow/unavailable ML sidecar must never
+            // fail the whole bulk job; the incident still exists without a root cause.
+        }
+    }
+
+    private static String str(Object v, String fallback) {
+        return v == null ? fallback : String.valueOf(v);
     }
 
     @Transactional
@@ -185,12 +408,16 @@ public class IncidentService {
         );
     }
 
-    /** Resolve an incident the caller is allowed to see, or 404. */
+    /**
+     * Resolve an incident the caller is allowed to see, or 404. 404 (not 403) is used for
+     * both "doesn't exist" and "exists but you can't see it" so a non-member can't probe
+     * incident IDs to learn whether a workspace-scoped incident exists.
+     */
     private Incident require(AuthPrincipal principal, UUID id) {
         Incident incident = principal.isSuperAdmin()
                 ? repository.findById(id).orElse(null)
                 : repository.findByIdAndOrgId(id, principal.orgId()).orElse(null);
-        if (incident == null) {
+        if (incident == null || !canSee(principal, incident)) {
             throw new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "Incident not found");
         }
         return incident;

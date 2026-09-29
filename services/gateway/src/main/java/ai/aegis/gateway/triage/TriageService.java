@@ -4,6 +4,7 @@ import ai.aegis.gateway.incident.Incident;
 import ai.aegis.gateway.incident.IncidentRepository;
 import ai.aegis.gateway.ml.MlClient;
 import ai.aegis.gateway.security.AuthPrincipal;
+import ai.aegis.gateway.workspace.WorkspaceMemberRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -14,6 +15,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * RL triage: build a feature view of the org's incidents, hand them to the ML Q-learning
@@ -36,12 +38,18 @@ public class TriageService {
             {"network", "network"}, {"dns", "network"}, {"connection", "network"},
     };
 
+    // Placeholder for a member with zero workspace memberships — Postgres/Hibernate
+    // reject an empty "IN ()" list.
+    private static final UUID NO_WORKSPACES_SENTINEL = new UUID(0L, 0L);
+
     private final IncidentRepository incidents;
     private final MlClient ml;
+    private final WorkspaceMemberRepository workspaceMembers;
 
-    public TriageService(IncidentRepository incidents, MlClient ml) {
+    public TriageService(IncidentRepository incidents, MlClient ml, WorkspaceMemberRepository workspaceMembers) {
         this.incidents = incidents;
         this.ml = ml;
+        this.workspaceMembers = workspaceMembers;
     }
 
     @Transactional(readOnly = true)
@@ -89,11 +97,22 @@ public class TriageService {
         return resp == null ? Map.of("trained_on", 0, "q_states", 0) : resp;
     }
 
+    /** Workspace-visibility-aware: a regular member's triage queue only shows incidents
+     * they can actually open (unscoped + their workspaces), since queue() re-attaches
+     * titles per row. Admins see the full org queue. */
     private List<Incident> fetch(AuthPrincipal principal) {
         Pageable p = PageRequest.of(0, MAX_INCIDENTS, Sort.by(Sort.Direction.DESC, "detectedAt"));
-        return principal.isSuperAdmin()
-                ? incidents.findAll(p).getContent()
-                : incidents.findByOrgId(principal.orgId(), p).getContent();
+        if (principal.isSuperAdmin()) {
+            return incidents.findAll(p).getContent();
+        }
+        if (principal.isOrgAdmin()) {
+            return incidents.findByOrgId(principal.orgId(), p).getContent();
+        }
+        List<UUID> memberWorkspaceIds = workspaceMembers.findWorkspaceIdsByUserId(principal.userId());
+        if (memberWorkspaceIds.isEmpty()) {
+            memberWorkspaceIds = List.of(NO_WORKSPACES_SENTINEL);
+        }
+        return incidents.findVisibleByOrgId(principal.orgId(), memberWorkspaceIds, p).getContent();
     }
 
     private Map<String, Object> feature(Incident i) {

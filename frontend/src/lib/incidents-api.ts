@@ -1,10 +1,11 @@
-import { apiDelete, apiGet, apiPost } from "./api";
+import { apiDelete, apiGet, apiPost, apiPut } from "./api";
 
 export type Incident = {
   id: string;
   orgId: string;
   userId: string | null;
   assignedTo: string | null;
+  workspaceId: string | null;
   title: string;
   status: string;
   severity: string | null;
@@ -35,8 +36,9 @@ export type DashboardSummary = {
   recent: Incident[];
 };
 
-export function listIncidents(token: string, page = 0, size = 20) {
-  return apiGet<IncidentPage>(`/incidents?page=${page}&size=${size}`, token);
+export function listIncidents(token: string, page = 0, size = 20, workspaceId?: string) {
+  const q = workspaceId ? `&workspaceId=${workspaceId}` : "";
+  return apiGet<IncidentPage>(`/incidents?page=${page}&size=${size}${q}`, token);
 }
 
 export function getIncident(token: string, id: string) {
@@ -45,7 +47,7 @@ export function getIncident(token: string, id: string) {
 
 export function createIncident(
   token: string,
-  input: { title: string; severity?: string; rawLogs?: string; anomalyDescription?: string }
+  input: { title: string; severity?: string; rawLogs?: string; anomalyDescription?: string; workspaceId?: string }
 ) {
   return apiPost<Incident>("/incidents", input, token);
 }
@@ -60,6 +62,12 @@ export function deleteIncident(token: string, id: string) {
 
 export function claimIncident(token: string, id: string) {
   return apiPost<Incident>(`/incidents/${id}/claim`, {}, token);
+}
+
+// Move an existing incident into/out of a workspace. workspaceId=null (or omitted)
+// clears the tag, moving it back to the shared/general pool. Admin-only server-side.
+export function setIncidentWorkspace(token: string, id: string, workspaceId: string | null) {
+  return apiPut<Incident>(`/incidents/${id}/workspace`, { workspaceId }, token);
 }
 
 // Advanced ML on an incident (free-form JSON results).

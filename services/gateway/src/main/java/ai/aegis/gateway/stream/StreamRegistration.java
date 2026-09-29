@@ -36,6 +36,12 @@ public class StreamRegistration {
     @Column(nullable = false)
     private String status = "active";
 
+    @Column(name = "last_event_at")
+    private OffsetDateTime lastEventAt;
+
+    @Column(name = "event_count", nullable = false)
+    private long eventCount = 0;
+
     @Column(name = "created_by")
     private UUID createdBy;
 
@@ -84,6 +90,20 @@ public class StreamRegistration {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public OffsetDateTime getLastEventAt() {
+        return lastEventAt;
+    }
+
+    public long getEventCount() {
+        return eventCount;
+    }
+
+    /** Record ingestion activity: bump the running count and stamp the last-seen time. */
+    public void recordEvent(int lineCount, OffsetDateTime at) {
+        this.eventCount += lineCount;
+        this.lastEventAt = at;
     }
 
     public OffsetDateTime getCreatedAt() {

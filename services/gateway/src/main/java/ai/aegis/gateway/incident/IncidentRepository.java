@@ -11,14 +11,40 @@ import java.util.UUID;
 
 public interface IncidentRepository extends JpaRepository<Incident, UUID> {
 
-    // Org-scoped access (the common path for org_admin / member).
+    // Org-scoped access for admins (super_admin/org_admin), who see every incident
+    // regardless of workspace membership.
     Page<Incident> findByOrgId(UUID orgId, Pageable pageable);
+
+    /** Same, additionally filtered to a workspace — the real "view" workspaces provide. */
+    Page<Incident> findByOrgIdAndWorkspaceId(UUID orgId, UUID workspaceId, Pageable pageable);
 
     Optional<Incident> findByIdAndOrgId(UUID id, UUID orgId);
 
     long countByOrgId(UUID orgId);
 
     long countByOrgIdAndStatus(UUID orgId, String status);
+
+    // --- Workspace-visibility-aware reads (for regular members) ---
+    // An incident is visible to a regular member if it's unscoped (workspace_id IS NULL,
+    // the shared/general pool) OR scoped to a workspace they belong to. Admins bypass this
+    // entirely and use the plain findByOrgId methods above.
+
+    @Query("select i from Incident i where i.orgId = :orgId " +
+            "and (i.workspaceId is null or i.workspaceId in :memberWorkspaceIds)")
+    Page<Incident> findVisibleByOrgId(UUID orgId, List<UUID> memberWorkspaceIds, Pageable pageable);
+
+    @Query("select i from Incident i where i.orgId = :orgId " +
+            "and (i.workspaceId is null or i.workspaceId in :memberWorkspaceIds) " +
+            "order by i.detectedAt desc")
+    List<Incident> findTop10VisibleByOrgId(UUID orgId, List<UUID> memberWorkspaceIds, Pageable pageable);
+
+    @Query("select count(i) from Incident i where i.orgId = :orgId " +
+            "and (i.workspaceId is null or i.workspaceId in :memberWorkspaceIds)")
+    long countVisibleByOrgId(UUID orgId, List<UUID> memberWorkspaceIds);
+
+    @Query("select count(i) from Incident i where i.orgId = :orgId and i.status = :status " +
+            "and (i.workspaceId is null or i.workspaceId in :memberWorkspaceIds)")
+    long countVisibleByOrgIdAndStatus(UUID orgId, String status, List<UUID> memberWorkspaceIds);
 
     // Aggregates for the dashboard.
     @Query("select i.status as label, count(i) as total from Incident i where i.orgId = :orgId group by i.status")
@@ -55,6 +81,18 @@ public interface IncidentRepository extends JpaRepository<Incident, UUID> {
             LIMIT 5
             """, nativeQuery = true)
     List<Object[]> findSimilar(UUID orgId, UUID selfId, String vec);
+
+    /** Same similarity search, restricted to incidents visible to a non-admin caller. */
+    @Query(value = """
+            SELECT CAST(id AS text), title, severity, status,
+                   (1 - (embedding <=> CAST(:vec AS vector))) AS score
+            FROM incidents
+            WHERE org_id = :orgId AND embedding IS NOT NULL AND id <> :selfId
+              AND (workspace_id IS NULL OR workspace_id IN (:memberWorkspaceIds))
+            ORDER BY embedding <=> CAST(:vec AS vector)
+            LIMIT 5
+            """, nativeQuery = true)
+    List<Object[]> findSimilarVisible(UUID orgId, UUID selfId, String vec, List<UUID> memberWorkspaceIds);
 
     interface CountByLabel {
         String getLabel();

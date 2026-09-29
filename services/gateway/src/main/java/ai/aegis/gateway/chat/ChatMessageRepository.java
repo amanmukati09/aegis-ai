@@ -1,5 +1,6 @@
 package ai.aegis.gateway.chat;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -8,6 +9,14 @@ import java.util.UUID;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> {
     List<ChatMessage> findBySessionIdOrderByCreatedAtAsc(UUID sessionId);
+
+    /**
+     * Most recent messages for a session, newest first (used to build a bounded LLM context
+     * window instead of replaying the whole session — see ChatService.recentHistory).
+     */
+    List<ChatMessage> findBySessionIdOrderByCreatedAtDesc(UUID sessionId, Pageable pageable);
+
+    long countBySessionId(UUID sessionId);
 
     void deleteBySessionId(UUID sessionId);
 

@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import { AlertOctagon, CheckCircle2, ChevronRight, Clock, FolderOpen } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { getDashboardSummary, type DashboardSummary } from "@/lib/incidents-api";
 import { analyticsApi, type TimeseriesPoint } from "@/lib/platform-api";
@@ -50,19 +52,15 @@ export default function DashboardHome() {
       <ErrorText message={error} />
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Open" value={loading ? "—" : summary?.open ?? 0} />
-        <StatCard label="Critical" value={loading ? "—" : critical} accent={critical > 0} />
-        <StatCard label="Resolved" value={loading ? "—" : summary?.resolved ?? 0} />
-        <StatCard label="MTTR (hrs)" value={loading ? "—" : mttr == null ? "—" : mttr.toFixed(1)} />
+        <StatCard label="Open" value={loading ? "—" : summary?.open ?? 0} icon={<FolderOpen className="h-4 w-4" />} />
+        <StatCard label="Critical" value={loading ? "—" : critical} accent={critical > 0} icon={<AlertOctagon className="h-4 w-4" />} />
+        <StatCard label="Resolved" value={loading ? "—" : summary?.resolved ?? 0} icon={<CheckCircle2 className="h-4 w-4" />} />
+        <StatCard label="MTTR (hrs)" value={loading ? "—" : mttr == null ? "—" : mttr.toFixed(1)} icon={<Clock className="h-4 w-4" />} />
       </div>
 
       <Card className="mt-6">
         <h2 className="mb-3 text-sm font-medium text-ink">Incidents over the last 14 days</h2>
-        {series.length > 0 ? (
-          <AreaTrend data={series as unknown as Record<string, unknown>[]} xKey="day" yKey="total" />
-        ) : (
-          <p className="py-8 text-center text-sm text-ink-soft">{loading ? "Loading…" : "No data yet."}</p>
-        )}
+        <AreaTrend data={series as unknown as Record<string, unknown>[]} xKey="day" yKey="total" />
       </Card>
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -87,23 +85,24 @@ export default function DashboardHome() {
       <Card className="mt-6 p-0">
         <div className="flex items-center justify-between px-5 pb-2 pt-5">
           <h2 className="text-sm font-medium text-ink">Recent incidents</h2>
-          <Link href="/dashboard/incidents" className="text-sm text-accent hover:underline">
-            View all
+          <Link href="/dashboard/incidents" className="flex items-center gap-1 text-sm text-accent hover:underline">
+            View all <ChevronRight className="h-3.5 w-3.5" />
           </Link>
         </div>
         {summary && summary.recent.length > 0 ? (
           <ul>
-            {summary.recent.map((i) => (
-              <li
+            {summary.recent.map((i, idx) => (
+              <motion.li
                 key={i.id}
-                className="flex items-center justify-between border-t border-black/5 px-5 py-3 text-sm"
+                initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }}
+                className="flex items-center justify-between border-t border-line/10 px-5 py-3 text-sm"
               >
                 <span className="font-medium">{i.title}</span>
                 <span className="flex items-center gap-2">
                   <SeverityBadge severity={i.severity} />
                   <StatusBadge status={i.status} />
                 </span>
-              </li>
+              </motion.li>
             ))}
           </ul>
         ) : (

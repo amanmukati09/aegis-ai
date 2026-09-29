@@ -13,4 +13,14 @@ public record AuthPrincipal(UUID userId, UUID orgId, String email, Role role) {
     public boolean isSuperAdmin() {
         return role == Role.SUPER_ADMIN;
     }
+
+    /** Org admins administer their whole org, so they bypass workspace-visibility limits. */
+    public boolean isOrgAdmin() {
+        return role == Role.ORG_ADMIN;
+    }
+
+    /** Super admin or org admin — sees every incident in scope regardless of workspace. */
+    public boolean bypassesWorkspaceVisibility() {
+        return isSuperAdmin() || isOrgAdmin();
+    }
 }

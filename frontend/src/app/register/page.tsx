@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { Button, Card, ErrorText, Field, Input, PasswordInput } from "@/components/ui";
+import { Logo } from "@/components/Logo";
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -36,9 +37,11 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-6 py-10">
-      <div className="w-full max-w-sm">
+    <main className="relative flex min-h-screen items-center justify-center px-6 py-10">
+      <div className="pointer-events-none absolute inset-0 bg-surface-glow" />
+      <div className="relative w-full max-w-sm">
         <div className="mb-8 text-center">
+          <div className="mx-auto mb-3"><Logo size={48} /></div>
           <h1 className="text-3xl font-semibold tracking-tight">Create your workspace</h1>
           <p className="mt-1 text-sm text-ink-soft">Start with a new organization</p>
         </div>

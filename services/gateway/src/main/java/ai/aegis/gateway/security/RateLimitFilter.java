@@ -79,12 +79,33 @@ public class RateLimitFilter extends OncePerRequestFilter {
         String auth = request.getHeader("Authorization");
         if (auth != null && auth.startsWith("Bearer ")) {
             String token = auth.substring("Bearer ".length());
-            return "t:" + token.substring(0, Math.min(20, token.length()));
+            // Every JWT signed with the same algorithm shares an identical header (e.g.
+            // "eyJhbGciOiJIUzUxMiJ9" for HS512), so a plain prefix collapses ALL users on
+            // this deployment into one shared rate-limit bucket instead of one per user -
+            // a real cap on concurrency, not just cosmetic. Hash the full token so distinct
+            // users (and distinct API keys) get distinct, evenly-distributed buckets.
+            return "t:" + sha256Hex(token);
         }
         String forwarded = request.getHeader("X-Forwarded-For");
         if (forwarded != null && !forwarded.isBlank()) {
             return "ip:" + forwarded.split(",")[0].trim();
         }
         return "ip:" + request.getRemoteAddr();
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+                sb.append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            // SHA-256 is always available on the JVM; this is unreachable in practice.
+            throw new IllegalStateException(e);
+        }
     }
 }

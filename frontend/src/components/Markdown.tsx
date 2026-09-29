@@ -24,7 +24,7 @@ export function Markdown({ content }: { content: string }) {
           a: (p) => <a className="text-accent underline" target="_blank" rel="noreferrer" {...p} />,
           strong: (p) => <strong className="font-semibold" {...p} />,
           blockquote: (p) => (
-            <blockquote className="my-2 border-l-2 border-black/10 pl-3 text-ink-soft" {...p} />
+            <blockquote className="my-2 border-l-2 border-line/15 pl-3 text-ink-soft" {...p} />
           ),
           code: ({ className, children, ...props }) => {
             const isBlock = className?.includes("language-");
@@ -39,7 +39,7 @@ export function Markdown({ content }: { content: string }) {
               );
             }
             return (
-              <code className="rounded bg-black/5 px-1.5 py-0.5 font-mono text-[0.8em]" {...props}>
+              <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[0.8em]" {...props}>
                 {children}
               </code>
             );
@@ -50,8 +50,8 @@ export function Markdown({ content }: { content: string }) {
               <table className="w-full border-collapse text-xs" {...p} />
             </div>
           ),
-          th: (p) => <th className="border border-black/10 bg-surface-muted px-2 py-1 text-left font-medium" {...p} />,
-          td: (p) => <td className="border border-black/10 px-2 py-1" {...p} />,
+          th: (p) => <th className="border border-line/10 bg-surface-2 px-2 py-1 text-left font-medium" {...p} />,
+          td: (p) => <td className="border border-line/10 px-2 py-1" {...p} />,
         }}
       >
         {content}

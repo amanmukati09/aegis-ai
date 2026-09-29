@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { ArrowRight, ClipboardList, Sparkles, Stethoscope } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { diagnose, type DiagnoseResult } from "@/lib/diagnosis-api";
-import { Button, Card, ErrorText, SeverityBadge } from "@/components/ui";
+import { Button, Card, ErrorText, PageHeader, SeverityBadge } from "@/components/ui";
 
 const SAMPLE = `2026-09-28 14:02:11 ERROR api-gateway: upstream timeout after 30s
 2026-09-28 14:02:12 WARN db-pool: 95% connections in use
@@ -39,11 +40,11 @@ export default function DiagnosisPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <h1 className="text-2xl font-semibold tracking-tight">AI Diagnosis</h1>
-      <p className="mt-1 text-sm text-ink-soft">
-        Paste logs and let AegisAI detect the anomaly, attribute a root cause, and suggest remediation.
-        An incident is created automatically.
-      </p>
+      <PageHeader
+        title="AI Diagnosis"
+        subtitle="Paste logs and let AegisAI detect the anomaly, attribute a root cause, and suggest remediation. An incident is created automatically."
+        icon={<Stethoscope className="h-6 w-6 text-accent" />}
+      />
 
       <Card className="mt-6">
         <textarea
@@ -51,7 +52,7 @@ export default function DiagnosisPage() {
           onChange={(e) => setLogs(e.target.value)}
           placeholder="Paste raw logs here…"
           rows={10}
-          className="w-full rounded-xl border border-black/10 bg-surface-muted p-4 font-mono text-xs text-ink outline-none focus:ring-2 focus:ring-accent/40"
+          className="input h-auto w-full rounded-xl p-4 font-mono text-xs leading-relaxed"
         />
         <div className="mt-3 flex items-center gap-3">
           <div className="w-40">
@@ -61,9 +62,9 @@ export default function DiagnosisPage() {
           </div>
           <button
             onClick={() => setLogs(SAMPLE)}
-            className="text-sm text-accent hover:underline"
+            className="flex items-center gap-1.5 text-sm text-accent hover:underline"
           >
-            Use sample logs
+            <ClipboardList className="h-3.5 w-3.5" /> Use sample logs
           </button>
         </div>
         <ErrorText message={error} />
@@ -73,7 +74,9 @@ export default function DiagnosisPage() {
         <div className="mt-6 space-y-4">
           <Card>
             <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-ink">Anomaly</h2>
+              <h2 className="flex items-center gap-2 text-sm font-medium text-ink">
+                <Stethoscope className="h-4 w-4 text-accent" /> Anomaly
+              </h2>
               <SeverityBadge severity={result.anomaly.severity} />
             </div>
             <p className="text-sm text-ink">{result.anomaly.description || "—"}</p>
@@ -101,7 +104,9 @@ export default function DiagnosisPage() {
           </Card>
 
           <Card>
-            <h2 className="mb-2 text-sm font-medium text-ink">Remediation</h2>
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-medium text-ink">
+              <Sparkles className="h-4 w-4 text-accent" /> Remediation
+            </h2>
             <RemediationList title="Immediate actions" items={result.remediation.immediate_actions} />
             <RemediationList title="Diagnostic commands" items={result.remediation.diagnostic_commands} mono />
             <RemediationList title="Prevention" items={result.remediation.prevention_measures} />
@@ -113,9 +118,9 @@ export default function DiagnosisPage() {
 
           <Link
             href="/dashboard/incidents"
-            className="inline-block text-sm text-accent hover:underline"
+            className="flex items-center gap-1 text-sm text-accent hover:underline"
           >
-            Incident #{result.incidentId.slice(0, 8)} created — view in Incidents →
+            Incident #{result.incidentId.slice(0, 8)} created — view in Incidents <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
       )}
@@ -130,7 +135,7 @@ function RemediationList({ title, items, mono = false }: { title: string; items:
       <p className="text-xs uppercase tracking-wide text-ink-soft">{title}</p>
       <ul className={"mt-1 space-y-1 text-sm text-ink " + (mono ? "font-mono text-xs" : "")}>
         {items.map((item, i) => (
-          <li key={i} className={mono ? "rounded bg-surface-muted px-2 py-1" : "list-inside list-disc"}>
+          <li key={i} className={mono ? "rounded bg-surface-2 px-2 py-1" : "list-inside list-disc"}>
             {item}
           </li>
         ))}

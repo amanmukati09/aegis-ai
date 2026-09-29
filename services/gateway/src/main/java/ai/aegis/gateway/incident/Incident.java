@@ -28,6 +28,9 @@ public class Incident {
     @Column(name = "stream_id")
     private UUID streamId;
 
+    @Column(name = "workspace_id")
+    private UUID workspaceId;
+
     @Column(name = "user_id")
     private UUID userId;
 
@@ -97,6 +100,22 @@ public class Incident {
         return id;
     }
 
+    public UUID getStreamId() {
+        return streamId;
+    }
+
+    public void setStreamId(UUID streamId) {
+        this.streamId = streamId;
+    }
+
+    public UUID getWorkspaceId() {
+        return workspaceId;
+    }
+
+    public void setWorkspaceId(UUID workspaceId) {
+        this.workspaceId = workspaceId;
+    }
+
     public UUID getOrgId() {
         return orgId;
     }
@@ -159,6 +178,10 @@ public class Incident {
 
     public String getRemediationAction() {
         return remediationAction;
+    }
+
+    public void setRemediationAction(String remediationAction) {
+        this.remediationAction = remediationAction;
     }
 
     public String getRemediationStatus() {

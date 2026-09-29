@@ -4,12 +4,14 @@ import ai.aegis.gateway.incident.dto.IncidentDtos.CreateRequest;
 import ai.aegis.gateway.incident.dto.IncidentDtos.IncidentView;
 import ai.aegis.gateway.incident.dto.IncidentDtos.PageResponse;
 import ai.aegis.gateway.incident.dto.IncidentDtos.ResolveRequest;
+import ai.aegis.gateway.incident.dto.IncidentDtos.SetWorkspaceRequest;
 import ai.aegis.gateway.security.AuthPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,8 +43,9 @@ public class IncidentController {
     @GetMapping
     public PageResponse list(@AuthenticationPrincipal AuthPrincipal principal,
                              @RequestParam(defaultValue = "0") int page,
-                             @RequestParam(defaultValue = "20") int size) {
-        return service.list(principal, page, size);
+                             @RequestParam(defaultValue = "20") int size,
+                             @RequestParam(required = false) java.util.UUID workspaceId) {
+        return service.list(principal, page, size, workspaceId);
     }
 
     @GetMapping("/{id}")
@@ -68,6 +71,15 @@ public class IncidentController {
     public IncidentView claim(@AuthenticationPrincipal AuthPrincipal principal,
                               @PathVariable UUID id, HttpServletRequest http) {
         return service.claim(principal, id, clientIp(http));
+    }
+
+    /** Move an incident into/out of a workspace after the fact. Admin-only. */
+    @PutMapping("/{id}/workspace")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ORG_ADMIN')")
+    public IncidentView setWorkspace(@AuthenticationPrincipal AuthPrincipal principal,
+                                     @PathVariable UUID id, @RequestBody SetWorkspaceRequest req,
+                                     HttpServletRequest http) {
+        return service.setWorkspace(principal, id, req.workspaceId(), clientIp(http));
     }
 
     @PostMapping("/{id}/rca-tree")

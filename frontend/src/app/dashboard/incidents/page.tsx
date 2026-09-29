@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
+  AlertTriangle, Download, FileText, GitBranch, Layers, Plus, Sparkles, Wrench, X,
+} from "lucide-react";
+import {
   createIncident,
   deleteIncident,
   downloadIncidentsCsv,
@@ -14,11 +17,16 @@ import {
   downloadIncidentPdf,
   listIncidents,
   resolveIncident,
+  setIncidentWorkspace,
   type Incident,
   type SimilarIncident,
   type TimelineEvent,
 } from "@/lib/incidents-api";
-import { Button, Card, ErrorText, Field, Input, SeverityBadge, StatusBadge } from "@/components/ui";
+import { kbApi, workspacesApi, type Workspace } from "@/lib/platform-api";
+import {
+  Button, Card, EmptyState, ErrorText, Field, Input, PageHeader, SeverityBadge, StatusBadge,
+  Table, TableRow,
+} from "@/components/ui";
 import { Markdown } from "@/components/Markdown";
 
 const SEVERITIES = ["low", "medium", "high", "critical"];
@@ -30,12 +38,19 @@ export default function IncidentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaceFilter, setWorkspaceFilter] = useState<string>("");
+
+  useEffect(() => {
+    if (!token) return;
+    workspacesApi.list(token).then(setWorkspaces).catch(() => setWorkspaces([]));
+  }, [token]);
 
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     try {
-      const page = await listIncidents(token);
+      const page = await listIncidents(token, 0, 20, workspaceFilter || undefined);
       setIncidents(page.items);
       setError(null);
     } catch (e) {
@@ -43,7 +58,7 @@ export default function IncidentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, workspaceFilter]);
 
   useEffect(() => {
     load();
@@ -51,62 +66,62 @@ export default function IncidentsPage() {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Incidents</h1>
-          <p className="mt-1 text-sm text-ink-soft">Track and resolve incidents in your organization.</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => token && downloadIncidentsCsv(token).catch((e) => setError(e.message))}
-            className="h-10 rounded-xl border border-black/10 px-4 text-sm font-medium text-ink transition-colors hover:bg-surface-muted"
-          >
-            Export CSV
-          </button>
-          <button
-            onClick={() => setShowCreate((v) => !v)}
-            className="h-10 rounded-xl bg-accent px-4 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-          >
-            {showCreate ? "Close" : "New incident"}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Incidents"
+        subtitle="Track and resolve incidents in your organization."
+        icon={<AlertTriangle className="h-6 w-6 text-accent" />}
+        actions={
+          <>
+            {workspaces.length > 0 && (
+              <select
+                value={workspaceFilter}
+                onChange={(e) => setWorkspaceFilter(e.target.value)}
+                className="input h-10 w-auto px-3 text-sm"
+              >
+                <option value="">All workspaces</option>
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={() => token && downloadIncidentsCsv(token).catch((e) => setError(e.message))}
+              className="btn-ghost flex h-10 items-center gap-2 px-4 text-sm"
+            >
+              <Download className="h-4 w-4" /> Export CSV
+            </button>
+            <button
+              onClick={() => setShowCreate((v) => !v)}
+              className="btn-accent flex h-10 items-center gap-2 px-4 text-sm"
+            >
+              {showCreate ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+              {showCreate ? "Close" : "New incident"}
+            </button>
+          </>
+        }
+      />
 
-      {showCreate && <CreateForm onCreated={() => { setShowCreate(false); load(); }} />}
+      {showCreate && <CreateForm workspaces={workspaces} onCreated={() => { setShowCreate(false); load(); }} />}
       <ErrorText message={error} />
 
       <Card className="mt-4 p-0">
         {loading ? (
           <p className="p-6 text-sm text-ink-soft">Loading…</p>
         ) : incidents.length === 0 ? (
-          <p className="p-6 text-sm text-ink-soft">No incidents yet. Create your first one.</p>
+          <EmptyState icon={<AlertTriangle className="h-8 w-8" />} title="No incidents yet" hint="Create your first one to get started." />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-black/5 text-left text-xs uppercase tracking-wide text-ink-soft">
-                <th className="px-5 py-3 font-medium">Title</th>
-                <th className="px-5 py-3 font-medium">Severity</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium">Detected</th>
-              </tr>
-            </thead>
-            <tbody>
-              {incidents.map((i) => (
-                <tr
-                  key={i.id}
-                  onClick={() => setSelected(i)}
-                  className="cursor-pointer border-b border-black/5 transition-colors last:border-0 hover:bg-surface-muted"
-                >
-                  <td className="px-5 py-3 font-medium">{i.title}</td>
-                  <td className="px-5 py-3"><SeverityBadge severity={i.severity} /></td>
-                  <td className="px-5 py-3"><StatusBadge status={i.status} /></td>
-                  <td className="px-5 py-3 text-ink-soft">
-                    {i.detectedAt ? new Date(i.detectedAt).toLocaleString() : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Table columns={["Title", "Severity", "Status", "Detected"]}>
+            {incidents.map((i) => (
+              <TableRow key={i.id} onClick={() => setSelected(i)}>
+                <td className="px-5 py-3 font-medium">{i.title}</td>
+                <td className="px-5 py-3"><SeverityBadge severity={i.severity} /></td>
+                <td className="px-5 py-3"><StatusBadge status={i.status} /></td>
+                <td className="px-5 py-3 text-ink-soft">
+                  {i.detectedAt ? new Date(i.detectedAt).toLocaleString() : "—"}
+                </td>
+              </TableRow>
+            ))}
+          </Table>
         )}
       </Card>
 
@@ -114,6 +129,8 @@ export default function IncidentsPage() {
         <DetailDrawer
           incident={selected}
           canDelete={isAdmin}
+          canRetag={isAdmin}
+          workspaces={workspaces}
           onClose={() => setSelected(null)}
           onChanged={() => { setSelected(null); load(); }}
         />
@@ -122,9 +139,9 @@ export default function IncidentsPage() {
   );
 }
 
-function CreateForm({ onCreated }: { onCreated: () => void }) {
+function CreateForm({ workspaces, onCreated }: { workspaces: Workspace[]; onCreated: () => void }) {
   const { token } = useAuth();
-  const [form, setForm] = useState({ title: "", severity: "medium", anomalyDescription: "", rawLogs: "" });
+  const [form, setForm] = useState({ title: "", severity: "medium", anomalyDescription: "", rawLogs: "", workspaceId: "" });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -134,7 +151,7 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
     setSubmitting(true);
     setError(null);
     try {
-      await createIncident(token, form);
+      await createIncident(token, { ...form, workspaceId: form.workspaceId || undefined });
       onCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create incident");
@@ -153,7 +170,7 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
           <select
             value={form.severity}
             onChange={(e) => setForm({ ...form, severity: e.target.value })}
-            className="h-11 w-full rounded-xl border border-black/10 bg-surface px-4 text-sm capitalize outline-none focus:ring-2 focus:ring-accent/40"
+            className="input h-11 capitalize"
           >
             {SEVERITIES.map((s) => (
               <option key={s} value={s}>{s}</option>
@@ -166,6 +183,20 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
             onChange={(e) => setForm({ ...form, anomalyDescription: e.target.value })}
           />
         </Field>
+        {workspaces.length > 0 && (
+          <Field label="Workspace (optional)">
+            <select
+              value={form.workspaceId}
+              onChange={(e) => setForm({ ...form, workspaceId: e.target.value })}
+              className="input h-11"
+            >
+              <option value="">No workspace</option>
+              {workspaces.map((w) => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
         <ErrorText message={error} />
         <div className="w-40">
           <Button type="submit" disabled={submitting}>{submitting ? "Creating…" : "Create"}</Button>
@@ -178,11 +209,15 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
 function DetailDrawer({
   incident,
   canDelete,
+  canRetag,
+  workspaces,
   onClose,
   onChanged,
 }: {
   incident: Incident;
   canDelete: boolean;
+  canRetag: boolean;
+  workspaces: Workspace[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -190,6 +225,24 @@ function DetailDrawer({
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [workspaceId, setWorkspaceId] = useState(incident.workspaceId ?? "");
+  const [retagging, setRetagging] = useState(false);
+  const [retagMsg, setRetagMsg] = useState<string | null>(null);
+
+  async function onRetag(newValue: string) {
+    if (!token) return;
+    setWorkspaceId(newValue);
+    setRetagging(true);
+    setRetagMsg(null);
+    try {
+      await setIncidentWorkspace(token, incident.id, newValue || null);
+      setRetagMsg(newValue ? "Moved to workspace." : "Cleared — now visible to the whole org.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update workspace");
+    } finally {
+      setRetagging(false);
+    }
+  }
   const [aiBusy, setAiBusy] = useState<string | null>(null);
   const [rca, setRca] = useState<Record<string, unknown> | null>(null);
   const [codeFix, setCodeFix] = useState<Record<string, unknown> | null>(null);
@@ -235,6 +288,21 @@ function DetailDrawer({
     finally { setAiBusy(null); }
   }
 
+  const [kbMsg, setKbMsg] = useState<string | null>(null);
+  async function generateKbArticle() {
+    if (!token) return;
+    setAiBusy("kb");
+    setKbMsg(null);
+    try {
+      await kbApi.generate(token, incident.id);
+      setKbMsg("Knowledge-base article created. See it on the Knowledge Base page.");
+    } catch (e) {
+      setKbMsg(e instanceof Error ? e.message : "Could not generate article");
+    } finally {
+      setAiBusy(null);
+    }
+  }
+
   async function onResolve() {
     if (!token) return;
     setBusy(true);
@@ -274,6 +342,32 @@ function DetailDrawer({
         <div className="flex gap-2">
           <SeverityBadge severity={incident.severity} />
           <StatusBadge status={incident.status} />
+        </div>
+
+        <div className="mt-4">
+          <dt className="text-xs uppercase tracking-wide text-ink-soft">Workspace</dt>
+          {canRetag && workspaces.length > 0 ? (
+            <div className="mt-1 flex items-center gap-2">
+              <select
+                value={workspaceId}
+                onChange={(e) => onRetag(e.target.value)}
+                disabled={retagging}
+                className="input h-9 flex-1 text-sm"
+              >
+                <option value="">No workspace (visible to everyone)</option>
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <dd className="mt-0.5 text-ink">
+              {incident.workspaceId
+                ? workspaces.find((w) => w.id === incident.workspaceId)?.name ?? "Restricted workspace"
+                : "None — visible to everyone in your organization"}
+            </dd>
+          )}
+          {retagMsg && <p className="mt-1 text-xs text-ink-soft">{retagMsg}</p>}
         </div>
 
         <dl className="mt-5 space-y-3 text-sm">
@@ -319,22 +413,22 @@ function DetailDrawer({
         {/* AI actions */}
         <div className="mt-5 flex gap-2">
           <button onClick={runRca} disabled={aiBusy !== null}
-            className="flex-1 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
-            {aiBusy === "rca" ? "Analyzing…" : "RCA tree"}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
+            <GitBranch className="h-3.5 w-3.5" /> {aiBusy === "rca" ? "Analyzing…" : "RCA tree"}
           </button>
           <button onClick={runCodeFix} disabled={aiBusy !== null}
-            className="flex-1 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
-            {aiBusy === "fix" ? "Generating…" : "Suggest code fix"}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
+            <Wrench className="h-3.5 w-3.5" /> {aiBusy === "fix" ? "Generating…" : "Suggest code fix"}
           </button>
         </div>
         <div className="mt-2 flex gap-2">
           <button onClick={runRunbook} disabled={aiBusy !== null}
-            className="flex-1 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
-            {aiBusy === "runbook" ? "Writing…" : "Generate runbook"}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
+            <Layers className="h-3.5 w-3.5" /> {aiBusy === "runbook" ? "Writing…" : "Generate runbook"}
           </button>
           <button onClick={downloadPdf} disabled={aiBusy !== null}
-            className="flex-1 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
-            {aiBusy === "pdf" ? "Preparing…" : "Download PDF"}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line/10 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50">
+            <FileText className="h-3.5 w-3.5" /> {aiBusy === "pdf" ? "Preparing…" : "Download PDF"}
           </button>
         </div>
 
@@ -371,12 +465,24 @@ function DetailDrawer({
           </Card>
         )}
 
-        {incident.status !== "resolved" && (
+        {incident.status !== "resolved" ? (
           <div className="mt-6 space-y-2">
             <Field label="Resolution notes (optional)">
               <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
             </Field>
             <Button onClick={onResolve} disabled={busy}>{busy ? "Working…" : "Mark resolved"}</Button>
+          </div>
+        ) : (
+          <div className="mt-6">
+            <button
+              onClick={generateKbArticle}
+              disabled={aiBusy !== null}
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-line/10 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-50"
+            >
+              <Sparkles className="h-4 w-4 text-accent" />
+              {aiBusy === "kb" ? "Generating…" : "Generate knowledge-base article"}
+            </button>
+            {kbMsg && <p className="mt-2 text-xs text-ink-soft">{kbMsg}</p>}
           </div>
         )}
 
@@ -384,7 +490,7 @@ function DetailDrawer({
           <button
             onClick={onDelete}
             disabled={busy}
-            className="mt-4 h-11 w-full rounded-xl border border-red-200 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+            className="mt-4 h-11 w-full rounded-xl border border-red-500/25 text-sm font-medium text-red-500 transition-colors hover:bg-red-500/10 disabled:opacity-50"
           >
             Delete incident
           </button>
@@ -411,7 +517,7 @@ type RunbookStep = { phase: string; action: string; command?: string };
 function RcaTree({ node, depth = 0 }: { node?: TreeNode; depth?: number }) {
   if (!node) return null;
   return (
-    <ul className={depth === 0 ? "mt-2" : "ml-4 border-l border-black/10 pl-3"}>
+    <ul className={depth === 0 ? "mt-2" : "ml-4 border-l border-line/10 pl-3"}>
       <li className="py-0.5 text-sm">
         <span className={depth === 0 ? "font-medium" : ""}>{node.label}</span>
         {node.children?.map((c, i) => <RcaTree key={i} node={c} depth={depth + 1} />)}

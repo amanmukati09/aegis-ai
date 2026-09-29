@@ -89,9 +89,20 @@ public class MlClient {
         return post("/v1/analyze/log-batch", req, java.util.Map.class);
     }
 
+    /** Segment a raw log stream into distinct incidents (deterministic). */
+    @SuppressWarnings("unchecked")
+    public java.util.Map<String, Object> analyzeBulkIncidents(Object req) {
+        return post("/v1/analyze/bulk-incidents", req, java.util.Map.class);
+    }
+
     @SuppressWarnings("unchecked")
     public java.util.Map<String, Object> runbook(Object req) {
         return post("/v1/runbook", req, java.util.Map.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    public java.util.Map<String, Object> kbExtract(Object req) {
+        return post("/v1/kb/extract", req, java.util.Map.class);
     }
 
     @SuppressWarnings("unchecked")

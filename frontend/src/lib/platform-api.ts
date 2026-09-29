@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost } from "./api";
+import { apiDelete, apiGet, apiPost, apiPut } from "./api";
 
 // ---- Streams ----
 export type Stream = {
@@ -7,13 +7,24 @@ export type Stream = {
   description: string | null;
   sourceType: string;
   status: string;
+  eventCount: number;
+  lastEventAt: string | null;
   createdAt: string;
+};
+export type StreamEventsResult = {
+  linesReceived: number;
+  worstSeverity: string;
+  incidentCreated: boolean;
+  incidentId: string | null;
 };
 export const streamsApi = {
   list: (t: string) => apiGet<Stream[]>("/streams", t),
   create: (t: string, name: string, description?: string, sourceType?: string) =>
     apiPost<Stream>("/streams", { name, description, sourceType }, t),
   remove: (t: string, id: string) => apiDelete<void>(`/streams/${id}`, t),
+  /** Manual/test push — the real path is any client hitting POST /api/streams/{id}/events with an API key. */
+  pushEvents: (t: string, id: string, lines: string[]) =>
+    apiPost<StreamEventsResult>(`/streams/${id}/events`, { lines }, t),
 };
 
 // ---- Notifications ----
@@ -51,15 +62,19 @@ export const apiKeysApi = {
 
 // ---- Workspaces ----
 export type Workspace = { id: string; name: string; description: string | null; createdAt: string };
-export type WorkspaceMember = { id: string; userId: string; role: string };
+export type WorkspaceMember = { id: string; userId: string; email: string; fullName: string; role: string };
+export type OrgUserCandidate = { id: string; email: string; fullName: string };
 export const workspacesApi = {
   list: (t: string) => apiGet<Workspace[]>("/workspaces", t),
   create: (t: string, name: string, description?: string) =>
     apiPost<Workspace>("/workspaces", { name, description }, t),
   remove: (t: string, id: string) => apiDelete<void>(`/workspaces/${id}`, t),
   members: (t: string, id: string) => apiGet<WorkspaceMember[]>(`/workspaces/${id}/members`, t),
+  candidates: (t: string, id: string) => apiGet<OrgUserCandidate[]>(`/workspaces/${id}/candidates`, t),
   addMember: (t: string, id: string, userId: string, role?: string) =>
     apiPost<WorkspaceMember>(`/workspaces/${id}/members`, { userId, role }, t),
+  removeMember: (t: string, id: string, userId: string) =>
+    apiDelete<void>(`/workspaces/${id}/members/${userId}`, t),
 };
 
 // ---- Admin ----
@@ -88,6 +103,13 @@ export const adminApi = {
   alertTest: (t: string) => apiPost<{ status: string; channels: string[] }>("/admin/alerts/test", {}, t),
   invite: (t: string, input: { email: string; fullName: string; role: string; tempPassword: string }) =>
     apiPost<AdminUser>("/admin/users/invite", input, t),
+  setStatus: (t: string, userId: string, active: boolean) =>
+    apiPut<AdminUser>(`/admin/users/${userId}/status`, { active }, t),
+  setRole: (t: string, userId: string, role: string) =>
+    apiPut<AdminUser>(`/admin/users/${userId}/role`, { role }, t),
+  resetPassword: (t: string, userId: string) =>
+    apiPost<{ tempPassword: string }>(`/admin/users/${userId}/reset-password`, {}, t),
+  deleteUser: (t: string, userId: string) => apiDelete<void>(`/admin/users/${userId}`, t),
 };
 
 // ---- Analytics (NL->SQL + charts) ----
@@ -106,14 +128,22 @@ export const analyticsApi = {
 };
 
 // ---- Dependency graph ----
-export type GraphNode = { id: string; label: string; weight: number };
+export type GraphNode = { id: string; label: string; weight: number; healthScore?: number; degree?: number };
 export type GraphEdge = { source: string; target: string; weight: number };
-export type DependencyGraph = { nodes: GraphNode[]; edges: GraphEdge[]; hasData: boolean };
+export type CriticalPath = { component: string; connections: number; healthScore: number; risk: string };
+export type DependencyGraph = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  hasData: boolean;
+  criticalPaths?: CriticalPath[];
+};
 export type BlastRadius = {
   component: string;
   directImpact: string[];
   indirectImpact: string[];
   radius: number;
+  totalIncidentImpact?: number;
+  severity?: string;
 };
 export const dependencyApi = {
   graph: (t: string) => apiGet<DependencyGraph>("/dependency/graph", t),
@@ -121,18 +151,79 @@ export const dependencyApi = {
     apiGet<BlastRadius>(`/dependency/blast-radius/${encodeURIComponent(component)}`, t),
 };
 
+// ---- Knowledge base ----
+export type KbArticle = {
+  id: string;
+  sourceIncidentId: string | null;
+  title: string;
+  category: string;
+  tags: string[];
+  symptoms: string;
+  rootCause: string;
+  solution: string;
+  prevention: string;
+  difficulty: string;
+  createdAt: string;
+};
+export type KbSearchHit = { id: string; title: string; category: string; difficulty: string; snippet: string };
+export const kbApi = {
+  list: (t: string) => apiGet<KbArticle[]>("/kb/articles", t),
+  search: (t: string, q: string) => apiGet<KbSearchHit[]>(`/kb/search?q=${encodeURIComponent(q)}`, t),
+  generate: (t: string, incidentId: string) => apiPost<KbArticle>(`/kb/generate/${incidentId}`, {}, t),
+  backfill: (t: string) => apiPost<{ created: number; skipped: number; failed: number }>("/kb/generate/backfill", {}, t),
+};
+
 // ---- Async jobs (bulk analysis) ----
+export type DetectedIncident = {
+  title: string;
+  severity: string;
+  component: string;
+  type: string;
+  count: number;
+  description: string;
+  evidence?: string[];
+  first_line?: number;
+  last_line?: number;
+};
+export type CreatedIncident = { id: string; title: string; severity: string; status: string };
+export type BulkResult = {
+  total_lines?: number;
+  error_lines?: number;
+  incident_count?: number;
+  incidents?: DetectedIncident[];
+  severity_breakdown?: Record<string, number>;
+  top_components?: Record<string, number>;
+  source?: string;
+  created_count?: number;
+  created?: CreatedIncident[];
+};
 export type Job = {
   id: string;
   type: string;
   status: string;
-  result: Record<string, unknown> | null;
+  result: BulkResult | null;
   error: string | null;
 };
 export const jobsApi = {
-  bulkAnalyze: (t: string, logs: string[]) => apiPost<Job>("/jobs/bulk-analyze", { logs }, t),
+  bulkAnalyze: (t: string, logs: string[], source?: string, createIncidents = true) =>
+    apiPost<Job>("/jobs/bulk-analyze", { logs, source, createIncidents }, t),
   get: (t: string, id: string) => apiGet<Job>(`/jobs/${id}`, t),
 };
+
+/** Download the combined bulk-analysis PDF (GET needs the auth header, so fetch a blob). */
+export async function downloadBulkReportPdf(token: string, jobId: string) {
+  const res = await fetch(`/api/gateway/jobs/${jobId}/report.pdf`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`PDF failed (HTTP ${res.status})`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `bulk-analysis-${jobId.slice(0, 8)}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 // ---- Ingest from URL ----
 export const ingestApi = {

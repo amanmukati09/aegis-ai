@@ -3,6 +3,7 @@ package ai.aegis.gateway.insights;
 import ai.aegis.gateway.incident.Incident;
 import ai.aegis.gateway.incident.IncidentRepository;
 import ai.aegis.gateway.security.AuthPrincipal;
+import ai.aegis.gateway.workspace.WorkspaceMemberRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -46,12 +47,18 @@ public class InsightsService {
             {"cpu", "CPU"}, {"disk", "Disk"},
     };
 
+    // Placeholder for a member with zero workspace memberships — Postgres/Hibernate
+    // reject an empty "IN ()" list.
+    private static final UUID NO_WORKSPACES_SENTINEL = new UUID(0L, 0L);
+
     private final IncidentRepository incidents;
     private final JdbcTemplate jdbc;
+    private final WorkspaceMemberRepository workspaceMembers;
 
-    public InsightsService(IncidentRepository incidents, JdbcTemplate jdbc) {
+    public InsightsService(IncidentRepository incidents, JdbcTemplate jdbc, WorkspaceMemberRepository workspaceMembers) {
         this.incidents = incidents;
         this.jdbc = jdbc;
+        this.workspaceMembers = workspaceMembers;
     }
 
     // ---- health score ---------------------------------------------------
@@ -78,7 +85,7 @@ public class InsightsService {
         String status = score >= 85 ? "Excellent" : score >= 70 ? "Healthy"
                 : score >= 50 ? "Degraded" : "Critical";
 
-        String topRisk = topRiskComponent(orgId);
+        String topRisk = topRiskComponent(principal);
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("score", score);
@@ -93,11 +100,10 @@ public class InsightsService {
         return out;
     }
 
-    private String topRiskComponent(UUID orgId) {
-        Pageable p = PageRequest.of(0, MAX_ROWS, Sort.by(Sort.Direction.DESC, "detectedAt"));
+    private String topRiskComponent(AuthPrincipal principal) {
         Map<String, Integer> counts = new LinkedHashMap<>();
         OffsetDateTime cutoff = OffsetDateTime.now().minusHours(24);
-        for (Incident i : incidents.findByOrgId(orgId, p).getContent()) {
+        for (Incident i : fetch(principal)) {
             if (i.getDetectedAt() != null && i.getDetectedAt().isBefore(cutoff)) {
                 continue;
             }
@@ -279,11 +285,23 @@ public class InsightsService {
     }
 
     // ---- helpers --------------------------------------------------------
+    /** Workspace-visibility-aware: predictions/clusters/top-risk-component are computed
+     * only from incidents the caller can see (aggregated output, but clusters() does
+     * include raw incident IDs — those are harmless on their own since GET /incidents/{id}
+     * enforces the same visibility rule, but there's no reason to hand them out either). */
     private List<Incident> fetch(AuthPrincipal principal) {
         Pageable p = PageRequest.of(0, MAX_ROWS, Sort.by(Sort.Direction.DESC, "detectedAt"));
-        return principal.isSuperAdmin()
-                ? incidents.findAll(p).getContent()
-                : incidents.findByOrgId(principal.orgId(), p).getContent();
+        if (principal.isSuperAdmin()) {
+            return incidents.findAll(p).getContent();
+        }
+        if (principal.isOrgAdmin()) {
+            return incidents.findByOrgId(principal.orgId(), p).getContent();
+        }
+        List<UUID> memberWorkspaceIds = workspaceMembers.findWorkspaceIdsByUserId(principal.userId());
+        if (memberWorkspaceIds.isEmpty()) {
+            memberWorkspaceIds = List.of(NO_WORKSPACES_SENTINEL);
+        }
+        return incidents.findVisibleByOrgId(principal.orgId(), memberWorkspaceIds, p).getContent();
     }
 
     private static String component(Incident i) {

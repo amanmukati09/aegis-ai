@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { Button, Card, ErrorText, Field, Input, PasswordInput } from "@/components/ui";
+import { Logo } from "@/components/Logo";
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
@@ -37,11 +38,7 @@ export default function LoginPage() {
       <div className="pointer-events-none absolute inset-0 bg-surface-glow" />
       <div className="relative w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-gradient text-white shadow-glow">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5l-8-3Z" />
-            </svg>
-          </div>
+          <div className="mx-auto mb-3"><Logo size={48} /></div>
           <h1 className="text-3xl font-semibold tracking-tight">AegisAI</h1>
           <p className="mt-1 text-sm text-ink-soft">Sign in to your account</p>
         </div>
@@ -94,12 +91,12 @@ function OAuthButtons() {
     { id: "microsoft", label: "Continue with Microsoft" },
   ];
   return (
-    <div className="mt-5 space-y-2 border-t border-black/5 pt-5">
+    <div className="mt-5 space-y-2 border-t border-line/10 pt-5">
       {providers.map((p) => (
         <a
           key={p.id}
           href={`${gatewayPublic}/oauth2/authorization/${p.id}`}
-          className="flex h-11 w-full items-center justify-center rounded-xl border border-black/10 bg-surface text-sm font-medium text-ink transition-colors hover:bg-surface-muted"
+          className="btn-ghost flex h-11 w-full items-center justify-center"
         >
           {p.label}
         </a>

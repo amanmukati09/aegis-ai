@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { BarChart3, ChevronDown, Search, Send } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { analyticsApi, type AskResult } from "@/lib/platform-api";
-import { Button, Card, ErrorText, Input } from "@/components/ui";
+import { Button, Card, ErrorText, Input, PageHeader, Table, TableRow } from "@/components/ui";
 import { BarBreakdown, LineTrend } from "@/components/Charts";
 
 export default function AnalyticsPage() {
@@ -39,18 +40,33 @@ export default function AnalyticsPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <h1 className="text-2xl font-semibold tracking-tight">Smart Analytics</h1>
-      <p className="mt-1 text-sm text-ink-soft">Ask questions about your incidents in plain English.</p>
+      <PageHeader
+        title="Smart Analytics"
+        subtitle="Ask questions about your incidents in plain English."
+        icon={<BarChart3 className="h-6 w-6 text-accent" />}
+      />
 
-      <Card className="mt-6">
+      <Card>
         <form onSubmit={(e) => { e.preventDefault(); ask(question); }} className="flex gap-2">
-          <Input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="e.g. How many incidents by severity?" />
-          <div className="w-28"><Button type="submit" disabled={loading}>{loading ? "…" : "Ask"}</Button></div>
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft" />
+            <Input
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder="e.g. How many incidents by severity?"
+              className="pl-9"
+            />
+          </div>
+          <div className="w-28">
+            <Button type="submit" disabled={loading} className="flex items-center justify-center gap-1.5">
+              {loading ? "…" : <><Send className="h-3.5 w-3.5" /> Ask</>}
+            </Button>
+          </div>
         </form>
         <div className="mt-3 flex flex-wrap gap-2">
           {presets.map((p) => (
             <button key={p} onClick={() => { setQuestion(p); ask(p); }}
-              className="rounded-full border border-black/10 px-3 py-1 text-xs text-ink-soft transition-colors hover:bg-surface-muted">
+              className="rounded-full border border-line/10 px-3 py-1 text-xs text-ink-soft transition-colors hover:bg-surface-2">
               {p}
             </button>
           ))}
@@ -76,27 +92,20 @@ export default function AnalyticsPage() {
             {result.rows.length === 0 ? (
               <p className="p-6 text-sm text-ink-soft">No rows returned.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-black/5 text-left text-xs uppercase tracking-wide text-ink-soft">
-                      {result.columns.map((c) => <th key={c} className="px-4 py-2 font-medium">{c}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.rows.map((row, i) => (
-                      <tr key={i} className="border-b border-black/5 last:border-0">
-                        {result.columns.map((c) => <td key={c} className="px-4 py-2">{String(row[c] ?? "")}</td>)}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <Table columns={result.columns}>
+                {result.rows.map((row, i) => (
+                  <TableRow key={i}>
+                    {result.columns.map((c) => <td key={c} className="px-4 py-2">{String(row[c] ?? "")}</td>)}
+                  </TableRow>
+                ))}
+              </Table>
             )}
           </Card>
 
-          <details className="text-xs text-ink-soft">
-            <summary className="cursor-pointer">Generated SQL</summary>
+          <details className="group text-xs text-ink-soft">
+            <summary className="flex cursor-pointer items-center gap-1">
+              <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" /> Generated SQL
+            </summary>
             <code className="mt-1 block overflow-x-auto rounded-lg bg-ink/90 p-3 font-mono text-white">{result.sql}</code>
           </details>
         </div>

@@ -3,6 +3,8 @@ package ai.aegis.gateway.dashboard;
 import ai.aegis.gateway.incident.IncidentRepository;
 import ai.aegis.gateway.incident.dto.IncidentDtos.IncidentView;
 import ai.aegis.gateway.security.AuthPrincipal;
+import ai.aegis.gateway.workspace.WorkspaceMemberRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,15 +18,24 @@ import java.util.UUID;
 /**
  * Org-scoped dashboard aggregates: totals, status/severity breakdowns, MTTR, and
  * recent incidents. Computed from the incidents table for the caller's organization.
+ * Aggregate counts remain org-wide (no per-incident detail), but the "recent" list
+ * respects workspace visibility since it exposes titles/severities.
  */
 @RestController
 @RequestMapping("/api/dashboard")
 public class DashboardController {
 
-    private final IncidentRepository incidents;
+    // A workspace-membership placeholder that never matches a real row — Postgres/
+    // Hibernate reject an empty "IN ()" list, so a member with zero workspaces still
+    // needs a non-empty (but harmless) list to pass into the visibility-aware query.
+    private static final UUID NO_WORKSPACES_SENTINEL = new UUID(0L, 0L);
 
-    public DashboardController(IncidentRepository incidents) {
+    private final IncidentRepository incidents;
+    private final WorkspaceMemberRepository workspaceMembers;
+
+    public DashboardController(IncidentRepository incidents, WorkspaceMemberRepository workspaceMembers) {
         this.incidents = incidents;
+        this.workspaceMembers = workspaceMembers;
     }
 
     public record Summary(
@@ -57,9 +68,16 @@ public class DashboardController {
         Map<String, Long> bySeverity = new LinkedHashMap<>();
         incidents.countGroupBySeverity(orgId).forEach(r -> bySeverity.put(r.getLabel(), r.getTotal()));
 
-        List<IncidentView> recent = incidents.findTop10ByOrgIdOrderByDetectedAtDesc(orgId)
+        List<IncidentView> recent = (principal.bypassesWorkspaceVisibility()
+                ? incidents.findTop10ByOrgIdOrderByDetectedAtDesc(orgId)
+                : incidents.findTop10VisibleByOrgId(orgId, visibleWorkspaceIds(principal), PageRequest.of(0, 10)))
                 .stream().map(IncidentView::of).toList();
 
         return new Summary(total, open, resolved, mttr, byStatus, bySeverity, recent);
+    }
+
+    private List<UUID> visibleWorkspaceIds(AuthPrincipal principal) {
+        List<UUID> ids = workspaceMembers.findWorkspaceIdsByUserId(principal.userId());
+        return ids.isEmpty() ? List.of(NO_WORKSPACES_SENTINEL) : ids;
     }
 }

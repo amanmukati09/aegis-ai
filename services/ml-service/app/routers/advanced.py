@@ -43,6 +43,12 @@ class RunbookRequest(BaseModel):
     model: str | None = None
 
 
+class KbExtractRequest(BaseModel):
+    incident: dict = Field(default_factory=dict)
+    provider: str | None = None
+    model: str | None = None
+
+
 def _gen(system: str, prompt: str, req) -> str:
     provider = registry.resolve(getattr(req, "provider", None))
     model = getattr(req, "model", None) or registry.default_model
@@ -70,6 +76,14 @@ def code_fix(req: CodeFixRequest) -> dict:
 def runbook(req: RunbookRequest) -> dict:
     raw = _gen(ap.RUNBOOK_SYSTEM, ap.runbook_prompt(req.incident), req)
     return parse_json(raw, ap.RUNBOOK_FALLBACK)
+
+
+@router.post("/kb/extract")
+def kb_extract(req: KbExtractRequest) -> dict:
+    """Turn a resolved incident into a knowledge-base article (title/symptoms/root
+    cause/solution/prevention). Falls back to a generic stub if generation fails."""
+    raw = _gen(ap.KB_SYSTEM, ap.kb_prompt(req.incident), req)
+    return parse_json(raw, ap.KB_FALLBACK)
 
 
 @router.post("/nl-to-sql")

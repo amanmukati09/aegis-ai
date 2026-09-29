@@ -98,3 +98,97 @@ export const PasswordInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HT
 export function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`skeleton ${className}`} />;
 }
+
+/**
+ * Page header: title + subtitle + optional right-aligned actions. Used at the top of
+ * every dashboard page so headings are visually consistent across the app.
+ */
+export function PageHeader({
+  title,
+  subtitle,
+  icon,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  icon?: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+          {icon}
+          {title}
+        </h1>
+        {subtitle && <p className="mt-1 text-sm text-ink-soft">{subtitle}</p>}
+      </div>
+      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+/** Empty-state placeholder: icon + message, used instead of a bare "No X yet" line. */
+export function EmptyState({
+  icon,
+  title,
+  hint,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  hint?: string;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
+      {icon && <div className="mb-1 text-ink-soft/50">{icon}</div>}
+      <p className="text-sm font-medium text-ink-soft">{title}</p>
+      {hint && <p className="max-w-xs text-xs text-ink-soft/70">{hint}</p>}
+    </div>
+  );
+}
+
+/** Token-consistent data table shell — header row + body, used across list pages. */
+export function Table({
+  columns,
+  children,
+}: {
+  columns: string[];
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-line/10 text-left text-xs uppercase tracking-wide text-ink-soft">
+            {columns.map((c) => (
+              <th key={c} className="px-5 py-3 font-medium">{c}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+export function TableRow({
+  onClick,
+  className = "",
+  children,
+}: {
+  onClick?: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <tr
+      onClick={onClick}
+      className={
+        "border-b border-line/10 transition-colors last:border-0 " +
+        (onClick ? "cursor-pointer hover:bg-surface-2 " : "") + className
+      }
+    >
+      {children}
+    </tr>
+  );
+}

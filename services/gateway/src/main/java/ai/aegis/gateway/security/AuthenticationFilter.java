@@ -2,7 +2,6 @@ package ai.aegis.gateway.security;
 
 import ai.aegis.gateway.apikey.ApiKey;
 import ai.aegis.gateway.apikey.ApiKeyRepository;
-import ai.aegis.gateway.user.Role;
 import ai.aegis.gateway.user.User;
 import ai.aegis.gateway.user.UserRepository;
 import io.jsonwebtoken.Claims;
@@ -63,11 +62,18 @@ public class AuthenticationFilter extends OncePerRequestFilter {
         try {
             Claims claims = jwtService.parse(token);
             UUID userId = UUID.fromString(claims.getSubject());
-            String orgStr = claims.get("org", String.class);
-            UUID orgId = (orgStr == null || orgStr.isBlank()) ? null : UUID.fromString(orgStr);
+            // A JWT is only cryptographic proof of who signed in, not that the account is
+            // still active — an admin deactivating someone must take effect immediately,
+            // not "whenever their existing token expires". One lookup per request is the
+            // acceptable cost of an instantly-revocable session without a token blocklist.
+            User user = userRepository.findById(userId).orElse(null);
+            if (user == null || !user.isActive()) {
+                return Optional.empty();
+            }
             String email = claims.get("email", String.class);
-            Role role = Role.valueOf(claims.get("role", String.class).toUpperCase());
-            return Optional.of(new AuthPrincipal(userId, orgId, email, role));
+            // Role/org come from the live user record, not the token, so a role/org change
+            // also takes effect immediately rather than waiting for re-login.
+            return Optional.of(new AuthPrincipal(userId, user.getOrgId(), email, user.getRole()));
         } catch (JwtException | IllegalArgumentException e) {
             return Optional.empty();
         }

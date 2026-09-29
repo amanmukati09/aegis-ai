@@ -14,6 +14,14 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-aegisai}
       POSTGRES_USER: ${POSTGRES_USER:-aegisai}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    # max_connections raised from Postgres's default of 100 so the gateway's Hikari pool
+    # (default 20, env-overridable via DB_POOL_MAX_SIZE) has headroom even with a couple
+    # of extra connections for migrations/tools; shared_buffers nudged up accordingly.
+    # Both are env-overridable and safe no-ops if left at these defaults.
+    command: >
+      postgres
+      -c max_connections=${POSTGRES_MAX_CONNECTIONS:-200}
+      -c shared_buffers=${POSTGRES_SHARED_BUFFERS:-192MB}
     ports:
       - "5432:5432"
     volumes:
@@ -24,7 +32,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    mem_limit: 512m
+    mem_limit: ${POSTGRES_MEM_LIMIT:-512m}
     restart: unless-stopped
 
   redis:
@@ -106,6 +114,16 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-alerts@aegis.local}
       ALERT_EMAILS: ${ALERT_EMAILS:-}
+      # Concurrency knobs (all optional — application.yml defaults work out of the box;
+      # override here for higher-traffic deployments without touching gateway config).
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-20}
+      DB_POOL_MIN_IDLE: ${DB_POOL_MIN_IDLE:-5}
+      DB_POOL_CONNECTION_TIMEOUT_MS: ${DB_POOL_CONNECTION_TIMEOUT_MS:-20000}
+      DB_POOL_MAX_LIFETIME_MS: ${DB_POOL_MAX_LIFETIME_MS:-1800000}
+      TOMCAT_THREADS_MAX: ${TOMCAT_THREADS_MAX:-400}
+      TOMCAT_THREADS_MIN_SPARE: ${TOMCAT_THREADS_MIN_SPARE:-20}
+      TOMCAT_ACCEPT_COUNT: ${TOMCAT_ACCEPT_COUNT:-200}
+      RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-100}
     ports:
       - "8080:8080"
     depends_on:
@@ -119,7 +137,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
-    mem_limit: 768m
+    mem_limit: ${GATEWAY_MEM_LIMIT:-768m}
     restart: unless-stopped
 
   frontend:

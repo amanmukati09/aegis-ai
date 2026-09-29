@@ -90,3 +90,28 @@ RUNBOOK_FALLBACK = {
 
 def runbook_prompt(incident: dict) -> str:
     return f"Incident:\n{json.dumps(incident)}\n\nWrite the runbook."
+
+
+# ---- Knowledge base article extraction ----
+KB_SYSTEM = (
+    "You are a technical writer turning a resolved incident into a reusable knowledge-base "
+    "article for other engineers. Return ONLY JSON: "
+    '{"title": string, "category": string, "tags": [string], "symptoms": string, '
+    '"root_cause": string, "solution": string, "prevention": string, '
+    '"difficulty": "Beginner|Intermediate|Advanced"}. Be concise and actionable; '
+    "write for someone seeing this class of incident for the first time."
+)
+KB_FALLBACK = {
+    "title": "Incident review",
+    "category": "General",
+    "tags": [],
+    "symptoms": "See incident details.",
+    "root_cause": "Not automatically determined.",
+    "solution": "See resolution notes.",
+    "prevention": "Review after resolution.",
+    "difficulty": "Intermediate",
+}
+
+
+def kb_prompt(incident: dict) -> str:
+    return f"Resolved incident:\n{json.dumps(incident)}\n\nWrite the knowledge-base article."

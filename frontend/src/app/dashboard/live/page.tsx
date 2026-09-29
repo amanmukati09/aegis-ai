@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { Activity, Radio } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { liveApi, type LiveState } from "@/lib/platform-api";
-import { Card, SeverityBadge, StatusBadge } from "@/components/ui";
+import { Card, EmptyState, PageHeader, SeverityBadge, StatusBadge } from "@/components/ui";
 
 /**
  * Live monitor: polls the org state every 4s for a near-real-time feed. (A WebSocket
@@ -30,18 +32,17 @@ export default function LivePage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Live Monitor</h1>
-          <p className="mt-1 text-sm text-ink-soft">
-            Real-time org activity{state ? ` · updated ${new Date(state.timestamp).toLocaleTimeString()}` : ""}
-          </p>
-        </div>
-        <label className="flex items-center gap-2 text-sm text-ink-soft">
-          <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
-          Auto-refresh
-        </label>
-      </div>
+      <PageHeader
+        title="Live Monitor"
+        subtitle={`Real-time org activity${state ? ` · updated ${new Date(state.timestamp).toLocaleTimeString()}` : ""}`}
+        icon={<Radio className="h-6 w-6 text-accent" />}
+        actions={
+          <label className="flex items-center gap-2 text-sm text-ink-soft">
+            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} className="accent-accent" />
+            Auto-refresh
+          </label>
+        }
+      />
 
       <div className="grid grid-cols-2 gap-4">
         <Card>
@@ -56,23 +57,29 @@ export default function LivePage() {
 
       <Card className="mt-4 p-0">
         <div className="flex items-center gap-2 px-5 py-3">
-          <span className={"h-2 w-2 rounded-full " + (live ? "animate-pulse bg-green-500" : "bg-black/20")} />
-          <h2 className="text-sm font-medium">Recent activity</h2>
+          <span className={"h-2 w-2 rounded-full " + (live ? "animate-pulse bg-emerald-500" : "bg-ink-soft/30")} />
+          <h2 className="flex items-center gap-2 text-sm font-medium">
+            <Activity className="h-4 w-4 text-accent" /> Recent activity
+          </h2>
         </div>
         {state && state.recent.length > 0 ? (
           <ul>
-            {state.recent.map((r) => (
-              <li key={r.id} className="flex items-center justify-between border-t border-black/5 px-5 py-3 text-sm">
+            {state.recent.map((r, i) => (
+              <motion.li
+                key={r.id}
+                initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.03 }}
+                className="flex items-center justify-between border-t border-line/10 px-5 py-3 text-sm"
+              >
                 <span className="font-medium">{r.title}</span>
                 <span className="flex items-center gap-2">
                   <SeverityBadge severity={r.severity} />
                   <StatusBadge status={r.status} />
                 </span>
-              </li>
+              </motion.li>
             ))}
           </ul>
         ) : (
-          <p className="px-5 pb-5 text-sm text-ink-soft">No recent activity.</p>
+          <EmptyState icon={<Radio className="h-8 w-8" />} title="No recent activity" />
         )}
       </Card>
     </div>

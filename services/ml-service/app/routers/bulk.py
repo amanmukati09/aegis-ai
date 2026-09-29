@@ -11,6 +11,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from ..agents.prompts import DETECT_FALLBACK, DETECT_SYSTEM, parse_json
+from ..agents import segmenter
 from ..providers import GenerationRequest, registry
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,21 @@ class LogBatchRequest(BaseModel):
     lines: list[str] = Field(default_factory=list)
     provider: str | None = None
     model: str | None = None
+
+
+class BulkIncidentsRequest(BaseModel):
+    lines: list[str] = Field(default_factory=list)
+    max_incidents: int = 25
+
+
+@router.post("/analyze/bulk-incidents")
+def analyze_bulk_incidents(req: BulkIncidentsRequest) -> dict:
+    """Segment a raw log stream into DISTINCT incidents (deterministic, offline).
+
+    Returns the full incident list + stats so the gateway can create real incident
+    records for every detected incident and render a combined report.
+    """
+    return segmenter.segment(req.lines, max_incidents=req.max_incidents)
 
 
 def _analyze_chunk(lines: list[str], req) -> dict:
@@ -84,19 +100,29 @@ def report_pdf(req: PdfRequest) -> Response:
 
         # Summary
         story.append(Paragraph("Summary", h))
-        story.append(Paragraph(
-            summary.get("description", "No summary available."), body))
+        if "incident_count" in a:
+            summary_text = (
+                f"Bulk analysis of {a.get('total_lines', 0)} log lines detected "
+                f"{a.get('incident_count', 0)} distinct incidents.")
+        else:
+            summary_text = summary.get("description", "No summary available.")
+        story.append(Paragraph(summary_text, body))
         story.append(Spacer(1, 12))
 
-        # Stats table
-        stats = [
-            ["Metric", "Value"],
-            ["Total lines", str(a.get("total_lines", "—"))],
-            ["Errors", str(a.get("error_count", "—"))],
-            ["Warnings", str(a.get("warning_count", "—"))],
-            ["Severity", str(summary.get("severity", "—"))],
-            ["Affected component", str(summary.get("affected_component", "—"))],
-        ]
+        # Stats table — tolerant of both the single-summary and bulk-incidents shapes.
+        stats = [["Metric", "Value"], ["Total lines", str(a.get("total_lines", "—"))]]
+        if "incident_count" in a:
+            stats.append(["Incidents detected", str(a.get("incident_count", 0))])
+            stats.append(["Error/critical lines", str(a.get("error_lines", 0))])
+            sb = a.get("severity_breakdown", {})
+            if isinstance(sb, dict) and sb:
+                stats.append(["Severity breakdown",
+                              ", ".join(f"{k}: {v}" for k, v in sb.items())])
+        else:
+            stats.append(["Errors", str(a.get("error_count", "—"))])
+            stats.append(["Warnings", str(a.get("warning_count", "—"))])
+            stats.append(["Severity", str(summary.get("severity", "—"))])
+            stats.append(["Affected component", str(summary.get("affected_component", "—"))])
         table = Table(stats, colWidths=[70 * mm, 90 * mm])
         table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#5856d6")),
@@ -109,7 +135,36 @@ def report_pdf(req: PdfRequest) -> Response:
         story.append(table)
         story.append(Spacer(1, 14))
 
-        # Anomalies
+        # Detected incidents (combined bulk report): render every incident found.
+        incidents = a.get("incidents", [])
+        if incidents:
+            story.append(Paragraph(f"Detected incidents ({len(incidents)})", h))
+            story.append(Spacer(1, 4))
+            sev_color = {
+                "critical": colors.HexColor("#ef4444"),
+                "high": colors.HexColor("#f59e0b"),
+                "medium": colors.HexColor("#3b82f6"),
+                "low": colors.HexColor("#10b981"),
+            }
+            for i, inc in enumerate(incidents[:50], start=1):
+                if not isinstance(inc, dict):
+                    continue
+                sev = str(inc.get("severity", "unknown")).lower()
+                c = sev_color.get(sev, colors.HexColor("#6b7280"))
+                heading = ParagraphStyle(
+                    f"inc{i}", parent=body, textColor=c, fontSize=11, spaceAfter=2)
+                story.append(Paragraph(
+                    f"<b>{i}. {inc.get('title', 'Incident')}</b> "
+                    f"[{sev.upper()}] · {inc.get('component', 'Other')}", heading))
+                story.append(Paragraph(inc.get("description", ""), body))
+                ev = inc.get("evidence", [])
+                if isinstance(ev, list) and ev:
+                    story.append(Paragraph(
+                        "<font size=8 color='#666666'>" + " · ".join(
+                            str(e)[:120] for e in ev[:2]) + "</font>", body))
+                story.append(Spacer(1, 8))
+
+        # Anomalies (single-incident report path)
         anomalies = a.get("anomalies", [])
         if anomalies:
             story.append(Paragraph("Detected anomalies", h))

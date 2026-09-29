@@ -6,8 +6,17 @@ spring:
     username: ${POSTGRES_USER:aegisai}
     password: ${POSTGRES_PASSWORD:aegisai}
     hikari:
-      maximum-pool-size: 8
-      minimum-idle: 2
+      # Defaults sized for a single gateway instance against Postgres's default
+      # max_connections=100 (see infra/docker/docker-compose.yml POSTGRES_MAX_CONNECTIONS,
+      # bumped to 200 there to give headroom). 20 in-flight DB connections comfortably
+      # serves thousands of concurrent users because virtual threads mean requests only
+      # hold a connection for the duration of the actual query, not the whole request —
+      # short-lived dashboard/live-monitor reads cycle through the pool quickly. Raise
+      # via env if running multiple gateway replicas (divide max_connections across them).
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:20000}
+      max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1800000}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -32,6 +41,16 @@ spring:
 server:
   port: 8080
   shutdown: graceful
+  tomcat:
+    threads:
+      # Tomcat's acceptor/worker threads are the real HTTP concurrency ceiling — virtual
+      # threads (enabled above) make request *handling* cheap, but a connection still
+      # needs a Tomcat thread to be accepted in the first place. Default of 200 is fine
+      # for light traffic; raised so a burst of polling dashboards (live monitor, streams
+      # activity panel) from many simultaneous users doesn't queue at the socket layer.
+      max: ${TOMCAT_THREADS_MAX:400}
+      min-spare: ${TOMCAT_THREADS_MIN_SPARE:20}
+    accept-count: ${TOMCAT_ACCEPT_COUNT:200}
 
 app:
   allowed-origins: ${APP_ALLOWED_ORIGINS:http://localhost:3000}
