@@ -60,7 +60,7 @@ public class IncidentService {
      * check {@link AuthPrincipal#bypassesWorkspaceVisibility()} first and use the
      * unrestricted repository methods instead of calling this for admins).
      */
-    private java.util.List<UUID> visibleWorkspaceIds(AuthPrincipal principal) {
+    public java.util.List<UUID> visibleWorkspaceIds(AuthPrincipal principal) {
         java.util.List<UUID> ids = workspaceMembers.findWorkspaceIdsByUserId(principal.userId());
         return ids.isEmpty() ? java.util.List.of(NO_WORKSPACES_SENTINEL) : ids;
     }
@@ -191,6 +191,26 @@ public class IncidentService {
     @Transactional(readOnly = true)
     public IncidentView get(AuthPrincipal principal, UUID id) {
         return IncidentView.of(require(principal, id));
+    }
+
+    /**
+     * Keyword search across title/description/root-cause, workspace-visibility-aware
+     * exactly like list(): the Copilot's incident-search tool calls this, so a user
+     * asking the chat about incidents can never learn about a workspace-scoped
+     * incident they're not a member of.
+     */
+    @Transactional(readOnly = true)
+    public java.util.List<IncidentView> search(AuthPrincipal principal, String query, int limit) {
+        String q = query == null ? "" : query.trim();
+        if (q.isEmpty()) {
+            return java.util.List.of();
+        }
+        Pageable pageable = PageRequest.of(0, Math.min(Math.max(limit, 1), 25),
+                Sort.by(Sort.Direction.DESC, "detectedAt"));
+        java.util.List<Incident> results = principal.bypassesWorkspaceVisibility()
+                ? repository.searchByOrgId(principal.orgId(), q, pageable)
+                : repository.searchVisibleByOrgId(principal.orgId(), visibleWorkspaceIds(principal), q, pageable);
+        return results.stream().map(IncidentView::of).toList();
     }
 
     @Transactional

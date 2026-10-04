@@ -36,8 +36,23 @@ public class JwtService {
     }
 
     public String issue(UUID userId, UUID orgId, String email, String role) {
+        return issue(userId, orgId, email, role, expiryDays, ChronoUnit.DAYS);
+    }
+
+    /**
+     * Mint a short-lived token scoped to the same user, for the ML sidecar's agent
+     * tool-calls to present back to the gateway. Keeps the exact same claims/validation
+     * path as a normal session token (AuthenticationFilter re-resolves the live user
+     * row, so workspace-visibility and role checks apply identically) but with a tight
+     * expiry since it only needs to live for the duration of one chat turn.
+     */
+    public String issueToolToken(UUID userId, UUID orgId, String email, String role) {
+        return issue(userId, orgId, email, role, 5, ChronoUnit.MINUTES);
+    }
+
+    private String issue(UUID userId, UUID orgId, String email, String role, long amount, ChronoUnit unit) {
         Instant now = Instant.now();
-        Instant exp = now.plus(expiryDays, ChronoUnit.DAYS);
+        Instant exp = now.plus(amount, unit);
         return Jwts.builder()
                 .subject(userId.toString())
                 .claims(Map.of(

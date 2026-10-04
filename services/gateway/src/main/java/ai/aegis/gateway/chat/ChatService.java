@@ -10,6 +10,8 @@ import ai.aegis.gateway.ml.MlClient;
 import ai.aegis.gateway.ml.MlDtos.ChatRequest;
 import ai.aegis.gateway.ml.MlDtos.ChatResponse;
 import ai.aegis.gateway.security.AuthPrincipal;
+import ai.aegis.gateway.security.JwtService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,14 +42,30 @@ public class ChatService {
     private final MlClient ml;
     private final GuardrailService guardrails;
     private final AuditService audit;
+    private final JwtService jwtService;
+    private final String gatewaySelfUrl;
 
     public ChatService(ChatSessionRepository sessions, ChatMessageRepository messages,
-                       MlClient ml, GuardrailService guardrails, AuditService audit) {
+                       MlClient ml, GuardrailService guardrails, AuditService audit,
+                       JwtService jwtService, @Value("${gateway.self-url}") String gatewaySelfUrl) {
         this.sessions = sessions;
         this.messages = messages;
         this.ml = ml;
         this.guardrails = guardrails;
         this.audit = audit;
+        this.jwtService = jwtService;
+        this.gatewaySelfUrl = gatewaySelfUrl;
+    }
+
+    /**
+     * Short-lived token (JwtService.issueToolToken) scoped to this user, handed to the
+     * ML sidecar so its agent tools can call back into this gateway's own REST API and
+     * authenticate as the same user — workspace-visibility/org scoping then apply
+     * automatically to every tool call, with zero new auth concept.
+     */
+    private String mintToolToken(AuthPrincipal principal) {
+        return jwtService.issueToolToken(principal.userId(), principal.orgId(),
+                principal.email(), principal.role().name());
     }
 
     @Transactional(readOnly = true)
@@ -107,7 +125,8 @@ public class ChatService {
 
         // Guardrail 3 (model): pass the security system prompt (defense in depth).
         ChatResponse resp = ml.chat(new ChatRequest(masked, history,
-                guardrails.securitySystemPrompt(), provider, model));
+                guardrails.securitySystemPrompt(), provider, model,
+                mintToolToken(principal), gatewaySelfUrl));
 
         // Guardrail 4 (output): scan the model response for destructive content.
         String reply = resp.reply();
@@ -145,7 +164,8 @@ public class ChatService {
 
         List<Map<String, String>> history = recentHistory(session.getId());
         ChatRequest req = new ChatRequest(masked, history,
-                guardrails.securitySystemPrompt(), provider, model);
+                guardrails.securitySystemPrompt(), provider, model,
+                mintToolToken(principal), gatewaySelfUrl);
         return new StreamPrep(session.getId(), req);
     }
 

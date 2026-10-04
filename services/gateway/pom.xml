@@ -127,6 +127,27 @@
             <version>4.12.0</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Property-based testing (JVM): jqwik, JUnit5-integrated -->
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <version>1.9.1</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- jqwik is its own JUnit Platform test engine, not a Jupiter extension, so plain
+             Spring Autowired field injection never fires inside Property/Provide methods
+             (confirmed via real test execution: fields are null there even though they work
+             fine in ordinary Test methods in the same class). jqwik-spring is the officially
+             maintained extension (same jqwik-team org) that bridges jqwik's test lifecycle to
+             Spring's TestContextManager, so Autowired fields on Property methods work
+             correctly once the JqwikSpringSupport annotation is added to the test class. -->
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik-spring</artifactId>
+            <version>0.12.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

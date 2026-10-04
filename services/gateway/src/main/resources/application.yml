@@ -60,6 +60,13 @@ jwt:
   secret: ${JWT_SECRET:dev-secret-change-me-min-32-bytes-long!!}
   expiry-days: ${JWT_EXPIRY_DAYS:7}
 
+credential:
+  # Base64-encoded 32-byte AES-256 key used by CredentialCipher to encrypt
+  # Provider_Configuration credentials at rest. The dev default below is the
+  # base64 encoding of 32 fixed bytes — change it in any shared/deployed
+  # environment via the CREDENTIAL_ENC_KEY env var.
+  encryption-key: ${CREDENTIAL_ENC_KEY:ZGV2LWNyZWRlbnRpYWwta2V5LWNoYW5nZS1tZS0zMmI=}
+
 bootstrap:
   admin:
     email: ${BOOTSTRAP_ADMIN_EMAIL:admin@aegis.local}
@@ -72,6 +79,12 @@ rate-limit:
 ml:
   service:
     url: ${ML_SERVICE_URL:http://localhost:8001}
+
+# How the ML sidecar's agent tools call back into this gateway (incident/KB search,
+# NL-to-SQL). Mirrors ml.service.url's pattern; defaults to the gateway's own
+# docker-compose service name so no extra wiring is needed in the common case.
+gateway:
+  self-url: ${GATEWAY_SELF_URL:http://gateway:8080}
 
 management:
   endpoints:

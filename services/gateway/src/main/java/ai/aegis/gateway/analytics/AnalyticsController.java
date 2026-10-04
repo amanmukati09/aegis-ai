@@ -1,6 +1,7 @@
 package ai.aegis.gateway.analytics;
 
 import ai.aegis.gateway.common.ApiException;
+import ai.aegis.gateway.incident.IncidentService;
 import ai.aegis.gateway.ml.MlClient;
 import ai.aegis.gateway.security.AuthPrincipal;
 import jakarta.validation.Valid;
@@ -30,10 +31,12 @@ public class AnalyticsController {
 
     private final MlClient ml;
     private final JdbcTemplate jdbc;
+    private final IncidentService incidentService;
 
-    public AnalyticsController(MlClient ml, JdbcTemplate jdbc) {
+    public AnalyticsController(MlClient ml, JdbcTemplate jdbc, IncidentService incidentService) {
         this.ml = ml;
         this.jdbc = jdbc;
+        this.incidentService = incidentService;
     }
 
     public record AskRequest(@NotBlank String question) {
@@ -81,14 +84,37 @@ public class AnalyticsController {
 
         validateSelectOnly(sql);
 
-        // Org-scope by shadowing the `incidents` table with a CTE pre-filtered to the
-        // caller's org. The generated SELECT reads `FROM incidents`, so it transparently
-        // sees only this org's rows — works for aggregates too, and isolation holds even
-        // if the model produced an unscoped query. Read-only, hard row cap.
-        String scoped = "WITH incidents AS (SELECT * FROM incidents WHERE org_id = ?) "
-                + sql + " LIMIT 500";
+        // Org-scope (and, for regular members, workspace-scope) by shadowing the
+        // `incidents` table with a CTE pre-filtered to what the caller may see. The
+        // generated SELECT reads `FROM incidents`, so it transparently sees only
+        // permitted rows — works for aggregates too, and isolation holds even if the
+        // model produced an unscoped query. Read-only, hard row cap.
+        //
+        // Admins (bypassesWorkspaceVisibility) see the whole org, same as everywhere
+        // else; regular members are additionally restricted to unscoped incidents plus
+        // incidents in a workspace they belong to — previously this endpoint only
+        // org-scoped, letting any member read workspace-scoped incidents via NL-to-SQL
+        // even though the same data is hidden from them in the incidents list/detail.
+        String scoped;
+        Object[] params;
+        if (principal.bypassesWorkspaceVisibility()) {
+            scoped = "WITH incidents AS (SELECT * FROM incidents WHERE org_id = ?) " + sql + " LIMIT 500";
+            params = new Object[] { principal.orgId() };
+        } else {
+            scoped = "WITH incidents AS (SELECT * FROM incidents WHERE org_id = ? " +
+                    "AND (workspace_id IS NULL OR workspace_id = ANY(?))) " + sql + " LIMIT 500";
+            java.util.List<UUID> visibleIds = incidentService.visibleWorkspaceIds(principal);
+            String[] workspaceIdStrings = visibleIds.stream().map(UUID::toString).toArray(String[]::new);
+            java.sql.Array workspaceArray;
+            try (java.sql.Connection conn = jdbc.getDataSource().getConnection()) {
+                workspaceArray = conn.createArrayOf("uuid", workspaceIdStrings);
+            } catch (java.sql.SQLException e) {
+                throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not scope query");
+            }
+            params = new Object[] { principal.orgId(), workspaceArray };
+        }
         try {
-            List<Map<String, Object>> rows = jdbc.queryForList(scoped, principal.orgId());
+            List<Map<String, Object>> rows = jdbc.queryForList(scoped, params);
             List<String> columns = rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).keySet());
             return Map.of(
                     "sql", sql,

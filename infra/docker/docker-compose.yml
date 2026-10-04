@@ -91,10 +91,18 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis}@redis:6379
       ML_SERVICE_URL: http://ml-service:8001
+      # How the ML sidecar's agent tools call back into this gateway (incident/KB
+      # search, NL-to-SQL) — same docker-compose network, so the gateway's own
+      # container name/port works out of the box.
+      GATEWAY_SELF_URL: http://gateway:8080
       APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-http://localhost:3000}
       APP_FRONTEND_URL: ${APP_FRONTEND_URL:-http://localhost:3000}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-min-32-bytes-long!!}
       JWT_EXPIRY_DAYS: ${JWT_EXPIRY_DAYS:-7}
+      # Base64-encoded 32-byte AES-256 key for Provider_Configuration credential
+      # encryption (CredentialCipher). Shared with ml-service once that side is
+      # wired (same pattern as JWT_SECRET being shared infrastructure-wide).
+      CREDENTIAL_ENC_KEY: ${CREDENTIAL_ENC_KEY:-ZGV2LWNyZWRlbnRpYWwta2V5LWNoYW5nZS1tZS0zMmI=}
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@aegis.local}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Platform Admin}

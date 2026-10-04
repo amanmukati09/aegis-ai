@@ -10,8 +10,20 @@ public final class MlDtos {
     }
 
     // ---- chat ----
+    // toolToken: short-lived JWT (JwtService.issueToolToken) scoped to the requesting
+    // user, forwarded so the ML sidecar's agent tools can call back into the gateway's
+    // own REST API (incident/KB search, NL-to-SQL) and have those calls authenticate as
+    // the same user — workspace-visibility and org scoping then apply automatically,
+    // with no new auth mechanism. gatewayBaseUrl tells the sidecar where to call back to.
     public record ChatRequest(String message, List<Map<String, String>> history,
-                              String system, String provider, String model) {
+                              String system, String provider, String model,
+                              String toolToken, String gatewayBaseUrl) {
+
+        /** Convenience constructor for callers that don't need tool-calling context. */
+        public ChatRequest(String message, List<Map<String, String>> history,
+                          String system, String provider, String model) {
+            this(message, history, system, provider, model, null, null);
+        }
     }
 
     public record ChatResponse(String reply, String model, String provider) {

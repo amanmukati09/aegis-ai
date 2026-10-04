@@ -1,7 +1,7 @@
 """Pydantic request/response models for the ML sidecar API."""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProviderOpts(BaseModel):
@@ -18,6 +18,15 @@ class ChatRequest(ProviderOpts):
     message: str
     history: list[ChatMessage] = Field(default_factory=list)
     system: str | None = None
+    # Short-lived JWT scoped to the requesting user (gateway's JwtService.issueToolToken)
+    # and the gateway's own base URL. When both are present the chat agent's tools can
+    # call back into the gateway's REST API, authenticated as that same user, so
+    # workspace-visibility/org scoping apply automatically. Absent for callers that
+    # don't need tool-calling (e.g. direct ML-service testing).
+    tool_token: str | None = Field(default=None, alias="toolToken")
+    gateway_base_url: str | None = Field(default=None, alias="gatewayBaseUrl")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ChatResponse(BaseModel):

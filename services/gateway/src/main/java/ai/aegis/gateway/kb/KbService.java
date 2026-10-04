@@ -21,8 +21,8 @@ import java.util.UUID;
  * Knowledge base: turns resolved incidents into reusable articles (symptoms / root cause /
  * solution / prevention) so the next engineer who hits the same class of problem finds the
  * answer instead of re-diagnosing from scratch. Generation is LLM-assisted with a safe
- * fallback; search is a simple org-scoped keyword match (no vector store needed at this
- * scale — swappable later using the same embedding pattern incidents already use).
+ * fallback; search tries real semantic (pgvector) similarity first, using the same
+ * embedding pipeline incidents use, and falls back to keyword ILIKE matching.
  */
 @Service
 public class KbService {
@@ -48,13 +48,72 @@ public class KbService {
                 .map(this::toView).toList();
     }
 
+    /**
+     * Search, scoped to articles whose source incident the caller can actually see.
+     * Admins (bypassesWorkspaceVisibility) search the whole org, same as browsing
+     * incidents directly; regular members only see articles from unscoped incidents or
+     * incidents in a workspace they belong to.
+     *
+     * Tries real semantic (pgvector cosine similarity) search first — the same
+     * embedding pipeline incidents use — so a question like "payments throwing errors"
+     * can surface an article titled "Checkout service 500s" even with zero keyword
+     * overlap. Falls back to the original keyword ILIKE search when embedding the
+     * query fails (ML sidecar unavailable) or similarity search comes back empty
+     * (e.g. no articles have been embedded yet, such as right after the V7 migration,
+     * before any article is re-saved).
+     */
     @Transactional(readOnly = true)
     public List<Map<String, Object>> search(AuthPrincipal principal, String query) {
         String q = query == null ? "" : query.trim();
         if (q.isEmpty()) {
             return List.of();
         }
-        return articles.search(principal.orgId(), q).stream()
+        List<Map<String, Object>> semantic = searchSemantic(principal, q);
+        if (!semantic.isEmpty()) {
+            return semantic;
+        }
+        return searchKeyword(principal, q);
+    }
+
+    private List<Map<String, Object>> searchSemantic(AuthPrincipal principal, String q) {
+        List<Double> vec;
+        try {
+            vec = ml.embed(q);
+        } catch (Exception e) {
+            return List.of();
+        }
+        if (vec == null || vec.isEmpty()) {
+            return List.of();
+        }
+        String literal = toVectorLiteral(vec);
+        List<Object[]> rows = principal.bypassesWorkspaceVisibility()
+                ? articles.searchSimilar(principal.orgId(), literal)
+                : articles.searchSimilarVisible(principal.orgId(), literal, incidentService.visibleWorkspaceIds(principal));
+        return rows.stream()
+                .map(row -> {
+                    double score = row[5] == null ? 0.0 : ((Number) row[5]).doubleValue();
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", row[0] == null ? "" : row[0].toString());
+                    m.put("title", row[1] == null ? "" : row[1].toString());
+                    m.put("category", row[2] == null ? "" : row[2].toString());
+                    m.put("difficulty", row[3] == null ? "" : row[3].toString());
+                    m.put("snippet", row[4] == null ? "" : row[4].toString());
+                    m.put("score", Math.round(score * 100) / 100.0);
+                    return m;
+                })
+                // A low-similarity "nearest" match is worse than no match — pgvector's
+                // <=> always returns the closest rows even when nothing is actually
+                // related, so a floor keeps unrelated articles out instead of forcing
+                // the keyword fallback to never run.
+                .filter(m -> ((Number) m.get("score")).doubleValue() >= 0.35)
+                .toList();
+    }
+
+    private List<Map<String, Object>> searchKeyword(AuthPrincipal principal, String q) {
+        List<Object[]> rows = principal.bypassesWorkspaceVisibility()
+                ? articles.search(principal.orgId(), q)
+                : articles.searchVisible(principal.orgId(), q, incidentService.visibleWorkspaceIds(principal));
+        return rows.stream()
                 .map(row -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", row[0] == null ? "" : row[0].toString());
@@ -65,6 +124,23 @@ public class KbService {
                     return m;
                 })
                 .toList();
+    }
+
+    private static String toVectorLiteral(List<Double> vec) {
+        return "[" + vec.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(",")) + "]";
+    }
+
+    /** Best-effort: embed the article's content and store the vector for similarity
+     * search. Mirrors IncidentService.embedAsync — never fails article creation. */
+    private void embedAsync(UUID articleId, String text) {
+        try {
+            List<Double> vec = ml.embed(text);
+            if (vec != null && !vec.isEmpty()) {
+                articles.setEmbedding(articleId, toVectorLiteral(vec));
+            }
+        } catch (Exception ignored) {
+            // Semantic search degrades to keyword search; never fail article creation.
+        }
     }
 
     /** Generate one article from a resolved incident. Idempotent per incident. */
@@ -106,6 +182,8 @@ public class KbService {
         article.setPrevention(str(gen.get("prevention"), "Review after resolution."));
         article.setDifficulty(str(gen.get("difficulty"), "Intermediate"));
         articles.save(article);
+        embedAsync(article.getId(), article.getTitle() + " " + article.getSymptoms() + " "
+                + article.getRootCause() + " " + article.getSolution());
 
         auditService.record(principal.orgId(), principal.userId(), principal.email(),
                 "kb_article_created", "kb_article", article.getId().toString(), ip);

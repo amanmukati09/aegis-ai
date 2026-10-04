@@ -9,7 +9,13 @@ from typing import Iterator
 
 import httpx
 
-from .base import AiProvider, GenerationRequest, ModelInfo, ProviderUnavailableError
+from .base import (
+    AiProvider,
+    GenerationRequest,
+    GenerationResult,
+    ModelInfo,
+    ProviderUnavailableError,
+)
 
 
 class OllamaProvider(AiProvider):
@@ -75,3 +81,97 @@ class OllamaProvider(AiProvider):
                 return [ModelInfo(id=m.get("name", ""), provider=self.name) for m in models if m.get("name")]
         except httpx.HTTPError:
             return []
+
+
+class OllamaAdapter:
+    """`ProviderAdapter` (catalog-driven) implementation for Ollama.
+
+    Thin rewrite of `OllamaProvider` to the new catalog-driven constructor shape.
+    Ollama has no credential_fields in the catalog (local, no API key); its only
+    configurable field is `base_url`, which per the V8 seed lives in
+    `connection_fields` and therefore arrives via the `settings` dict, not
+    `credentials`.
+
+    Introduced by task 8.3 (ai-provider-flexibility spec). `OllamaProvider` above
+    is kept, unchanged, for the old `ProviderRegistry` until tasks 16-19 migrate
+    the routers that still depend on it.
+    """
+
+    provider_type = "ollama"
+
+    def __init__(self, credentials: dict[str, str], settings: dict[str, str]):
+        settings = settings or {}
+        base_url = settings.get("base_url")
+        self._base_url = base_url.rstrip("/") if base_url else None
+
+    def is_available(self) -> bool:
+        return bool(self._base_url)
+
+    def _url(self, path: str) -> str:
+        if not self._base_url:
+            raise ProviderUnavailableError("Ollama base_url not configured")
+        return f"{self._base_url}{path}"
+
+    def _payload(self, req: GenerationRequest, stream: bool) -> dict:
+        payload: dict = {
+            "model": req.model,
+            "prompt": req.prompt if not req.system else f"{req.system}\n\n{req.prompt}",
+            "stream": stream,
+            "options": {"temperature": req.temperature},
+        }
+        if req.json_mode:
+            payload["format"] = "json"
+        if req.max_tokens:
+            payload["options"]["num_predict"] = req.max_tokens
+        if req.images:
+            payload["images"] = req.images
+        return payload
+
+    def generate(self, req: GenerationRequest) -> GenerationResult:
+        with httpx.Client(timeout=120) as client:
+            resp = client.post(self._url("/api/generate"), json=self._payload(req, stream=False))
+            resp.raise_for_status()
+            data = resp.json()
+            return GenerationResult(
+                text=data.get("response", ""),
+                input_tokens=data.get("prompt_eval_count"),
+                output_tokens=data.get("eval_count"),
+            )
+
+    def stream(self, req: GenerationRequest) -> Iterator[str]:
+        with httpx.Client(timeout=None) as client:
+            with client.stream("POST", self._url("/api/generate"), json=self._payload(req, stream=True)) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                        token = obj.get("response")
+                        if token:
+                            yield token
+                        if obj.get("done"):
+                            break
+                    except json.JSONDecodeError:
+                        continue
+
+    def list_models(self) -> list[ModelInfo]:
+        if not self.is_available():
+            return []
+        try:
+            with httpx.Client(timeout=10) as client:
+                resp = client.get(self._url("/api/tags"))
+                resp.raise_for_status()
+                models = resp.json().get("models", [])
+                return [
+                    ModelInfo(id=m.get("name", ""), provider=self.provider_type)
+                    for m in models
+                    if m.get("name")
+                ]
+        except httpx.HTTPError:
+            return []
+
+    def embed(self, texts: list[str]) -> list[list[float]] | None:
+        """Not implemented here; the local EmbeddingService (task 32) handles
+        embeddings instead of each adapter re-implementing them."""
+        return None

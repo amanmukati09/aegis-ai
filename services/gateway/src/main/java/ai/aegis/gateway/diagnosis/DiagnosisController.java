@@ -35,6 +35,16 @@ public class DiagnosisController {
         return service.run(principal, req.logs(), req.provider(), req.model(), clientIp(http));
     }
 
+    /**
+     * Same pipeline, but doesn't persist an incident. For callers (the Copilot's
+     * tool-calling in particular) who want a live diagnosis of a described problem
+     * without filing a formal incident as a side effect.
+     */
+    @PostMapping("/dry-run")
+    public DiagnoseResult diagnoseDryRun(@RequestBody DiagnoseRequest req) {
+        return service.runDryRun(req.logs(), req.provider(), req.model());
+    }
+
     private String clientIp(HttpServletRequest http) {
         String forwarded = http.getHeader("X-Forwarded-For");
         if (forwarded != null && !forwarded.isBlank()) {

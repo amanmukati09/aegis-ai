@@ -52,6 +52,40 @@ public class DiagnosisService {
     @Transactional
     public DiagnoseResult run(AuthPrincipal principal, List<String> rawLogs, String provider,
                               String model, String ip) {
+        Pipeline p = runPipeline(rawLogs, provider, model);
+
+        // Persist an incident, scoped to the caller's org.
+        Incident incident = new Incident(
+                UUID.randomUUID(), principal.orgId(), principal.userId(),
+                titleFrom(p.anomaly()), p.anomaly().severity(),
+                String.join("\n", p.logs()), p.anomaly().description());
+        incident.setRootCause(p.diagnosis().root_cause());
+        incident.setRemediationStatus("pending");
+        incidents.save(incident);
+
+        audit.record(principal.orgId(), principal.userId(), principal.email(),
+                "incident_diagnosed", "incident", incident.getId().toString(), ip);
+
+        return new DiagnoseResult(incident.getId().toString(), p.anomaly(), p.diagnosis(), p.remediation());
+    }
+
+    /**
+     * Same detect -> diagnose -> remediate pipeline as {@link #run}, but WITHOUT
+     * persisting an incident. Built for the Copilot's conversational "what's going on
+     * with X" questions: the user is describing a live problem, not filing a formal
+     * incident, so creating one as a side effect of every such question would litter
+     * the incident list with noise. incidentId is always null in the result.
+     */
+    public DiagnoseResult runDryRun(List<String> rawLogs, String provider, String model) {
+        Pipeline p = runPipeline(rawLogs, provider, model);
+        return new DiagnoseResult(null, p.anomaly(), p.diagnosis(), p.remediation());
+    }
+
+    private record Pipeline(List<String> logs, DetectResponse anomaly,
+                            DiagnoseResponse diagnosis, RemediationResponse remediation) {
+    }
+
+    private Pipeline runPipeline(List<String> rawLogs, String provider, String model) {
         // 1. Mask PII/secrets before anything leaves for the LLM.
         List<String> logs = guardrails.maskPii(rawLogs);
 
@@ -72,19 +106,7 @@ public class DiagnosisService {
         RemediationResponse remediation =
                 ml.suggestRemediation(new RemediationRequest(anomalyMap, rootCauseMap, provider, model));
 
-        // 5. Persist an incident, scoped to the caller's org.
-        Incident incident = new Incident(
-                UUID.randomUUID(), principal.orgId(), principal.userId(),
-                titleFrom(detected), detected.severity(),
-                String.join("\n", logs), detected.description());
-        incident.setRootCause(diagnosis.root_cause());
-        incident.setRemediationStatus("pending");
-        incidents.save(incident);
-
-        audit.record(principal.orgId(), principal.userId(), principal.email(),
-                "incident_diagnosed", "incident", incident.getId().toString(), ip);
-
-        return new DiagnoseResult(incident.getId().toString(), detected, diagnosis, remediation);
+        return new Pipeline(logs, detected, diagnosis, remediation);
     }
 
     private static String titleFrom(DetectResponse d) {

@@ -33,6 +33,23 @@ public interface IncidentRepository extends JpaRepository<Incident, UUID> {
             "and (i.workspaceId is null or i.workspaceId in :memberWorkspaceIds)")
     Page<Incident> findVisibleByOrgId(UUID orgId, List<UUID> memberWorkspaceIds, Pageable pageable);
 
+    // --- Keyword search (Copilot tool-calling) ---
+    // Same visibility split as the list() reads above: admins search the whole org,
+    // regular members are restricted to unscoped + their own workspaces' incidents.
+
+    @Query("select i from Incident i where i.orgId = :orgId " +
+            "and (lower(i.title) like lower(concat('%', :q, '%')) " +
+            "  or lower(i.anomalyDescription) like lower(concat('%', :q, '%')) " +
+            "  or lower(i.rootCause) like lower(concat('%', :q, '%')))")
+    List<Incident> searchByOrgId(UUID orgId, String q, Pageable pageable);
+
+    @Query("select i from Incident i where i.orgId = :orgId " +
+            "and (i.workspaceId is null or i.workspaceId in :memberWorkspaceIds) " +
+            "and (lower(i.title) like lower(concat('%', :q, '%')) " +
+            "  or lower(i.anomalyDescription) like lower(concat('%', :q, '%')) " +
+            "  or lower(i.rootCause) like lower(concat('%', :q, '%')))")
+    List<Incident> searchVisibleByOrgId(UUID orgId, List<UUID> memberWorkspaceIds, String q, Pageable pageable);
+
     @Query("select i from Incident i where i.orgId = :orgId " +
             "and (i.workspaceId is null or i.workspaceId in :memberWorkspaceIds) " +
             "order by i.detectedAt desc")

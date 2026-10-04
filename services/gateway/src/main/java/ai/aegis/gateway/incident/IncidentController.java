@@ -53,6 +53,18 @@ public class IncidentController {
         return service.get(principal, id);
     }
 
+    /**
+     * Keyword search, workspace-visibility-aware. Used by the Copilot's agent tools
+     * (called back from the ML sidecar with the user's own forwarded credentials) as
+     * well as any future in-app search box — same access rules as browsing the list.
+     */
+    @GetMapping("/search")
+    public java.util.List<IncidentView> search(@AuthenticationPrincipal AuthPrincipal principal,
+                                               @RequestParam("q") String q,
+                                               @RequestParam(defaultValue = "10") int limit) {
+        return service.search(principal, q, limit);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public IncidentView create(@AuthenticationPrincipal AuthPrincipal principal,
